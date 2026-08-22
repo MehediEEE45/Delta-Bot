@@ -109,6 +109,18 @@ graph TD
 
 ---
 
+## 🖨️ 3D Printable Enclosure (CAD Models)
+
+Delta-Bot includes open-source 3D printable STL files located in [hardware/3d_models](hardware/3d_models):
+
+- 📦 [`delta_bot_chassis.stl`](hardware/3d_models/delta_bot_chassis.stl): Main lower body chassis
+- 🖥️ [`delta_bot_head_cover.stl`](hardware/3d_models/delta_bot_head_cover.stl): OLED & Touch panel head cover
+- 🛞 [`delta_bot_wheel_left.stl`](hardware/3d_models/delta_bot_wheel_left.stl) & [`delta_bot_wheel_right.stl`](hardware/3d_models/delta_bot_wheel_right.stl): Drive wheels
+
+> For 3D printing settings, infill recommendations, and assembly guides, see [hardware/3d_models/README.md](hardware/3d_models/README.md).
+
+---
+
 ## 🚀 Getting Started
 
 ### 1. Prerequisites

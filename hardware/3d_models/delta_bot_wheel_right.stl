@@ -1,0 +1,9 @@
+solid delta_bot_wheel_right
+  facet normal 0 0 1
+    outer loop
+      vertex 0 0 0
+      vertex 10 0 0
+      vertex 10 10 0
+    endloop
+  endfacet
+endsolid delta_bot_wheel_right
