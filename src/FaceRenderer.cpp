@@ -2,6 +2,8 @@
 #include <Wire.h>
 #include <WiFi.h>
 #include "Config.h"
+#include "TaskManager.h"
+#include "AppController.h"
 
 namespace {
 constexpr uint16_t PixelOn = 1;
@@ -19,40 +21,255 @@ void FaceRenderer::begin() {
     display_.setTextSize(1);
 }
 
-void FaceRenderer::render(AppMode mode, Emotion emotion, const WeatherData& weather, bool wifiOnline, unsigned long now) {
+void FaceRenderer::render(AppMode mode, Emotion emotion, const WeatherData& weather, bool wifiOnline, unsigned long now, TaskManager* taskMgr) {
     display_.clearDisplay();
     display_.setTextColor(PixelOn);
-    if (mode == AppMode::TimeDate) {
-        drawTimeDateScreen(now);
-    } else if (mode == AppMode::Weather) {
-        drawWeatherScreen(weather, wifiOnline, now);
-    } else {
-        if (emotion == Emotion::Happy || emotion == Emotion::Idle) {
-            drawMusicFace(now);
-        } else {
-            drawSimpleRobotFace(emotion, now);
-        }
+
+    switch (mode) {
+        case AppMode::TimeDate:
+            drawTimeDateScreen(now);
+            break;
+        case AppMode::Weather:
+            drawWeatherScreen(weather, wifiOnline, now);
+            break;
+        case AppMode::Tasks:
+            drawTasksScreen(taskMgr, now);
+            break;
+        case AppMode::Notice:
+            drawNoticeScreen(taskMgr, now);
+            break;
+        case AppMode::Reminder:
+            drawReminderScreen(taskMgr, now);
+            break;
+        case AppMode::Pomodoro:
+            drawPomodoroScreen(taskMgr, now);
+            break;
+        case AppMode::Canvas:
+            drawCanvasScreen(taskMgr, now);
+            break;
+        case AppMode::Quotes:
+            drawQuotesScreen(taskMgr, now);
+            break;
+        case AppMode::DeskGuard:
+            drawDeskGuardScreen(taskMgr, now);
+            break;
+        case AppMode::Pet:
+            drawPetScreen(taskMgr, now);
+            break;
+        case AppMode::Decision:
+            drawDecisionScreen(taskMgr, now);
+            break;
+        case AppMode::Night:
+            drawNightScreen(now);
+            break;
+        case AppMode::RCCar:
+            drawRCCarFace(emotion, now);
+            break;
+        case AppMode::Music:
+        default:
+            if (emotion == Emotion::Happy || emotion == Emotion::Idle) {
+                drawMusicFace(now);
+            } else {
+                drawSimpleRobotFace(emotion, now);
+            }
+            break;
     }
+
     drawStatus(wifiOnline);
     display_.display();
+}
+
+void FaceRenderer::drawTasksScreen(TaskManager* taskMgr, unsigned long now) {
+    display_.setTextSize(1);
+    display_.setCursor(4, 2);
+    display_.print("TASKS / TODO LIST");
+    display_.drawFastHLine(4, 12, 120, PixelOn);
+
+    if (!taskMgr || taskMgr->taskCount() == 0) {
+        display_.setCursor(20, 28);
+        display_.print("No active tasks");
+        display_.setCursor(15, 42);
+        display_.print("Add via Web App!");
+        return;
+    }
+
+    int y = 16;
+    for (size_t i = 0; i < taskMgr->taskCount() && i < 3; ++i) {
+        const TaskItem* t = taskMgr->getTask(i);
+        if (!t) continue;
+        display_.setCursor(6, y);
+        display_.print(t->completed ? "[X] " : "[ ] ");
+        display_.print(t->text.substring(0, 14));
+        y += 15;
+    }
+}
+
+void FaceRenderer::drawNoticeScreen(TaskManager* taskMgr, unsigned long now) {
+    display_.drawRect(2, 2, 124, 60, PixelOn);
+    display_.drawRect(4, 4, 120, 56, PixelOn);
+
+    display_.setCursor(35, 8);
+    display_.print("! NOTICE !");
+    display_.drawFastHLine(10, 18, 108, PixelOn);
+
+    String text = taskMgr ? taskMgr->notice() : "Welcome to Delta-Bot!";
+    if (text.length() == 0) text = "No announcements.";
+
+    int scrollOffset = static_cast<int>((now / 150) % (text.length() * 6 + 120));
+    display_.setCursor(120 - scrollOffset, 32);
+    display_.print(text);
+}
+
+void FaceRenderer::drawReminderScreen(TaskManager* taskMgr, unsigned long now) {
+    display_.setTextSize(1);
+    display_.setCursor(28, 4);
+    display_.print("REMINDER ALARM");
+    display_.drawFastHLine(10, 14, 108, PixelOn);
+
+    const bool bellRinging = (now / 200) % 2 == 0;
+    int bellX = 58 + (bellRinging ? 2 : -2);
+    display_.drawCircle(bellX, 26, 8, PixelOn);
+    display_.fillTriangle(bellX - 8, 30, bellX + 8, 30, bellX, 22, PixelOn);
+
+    display_.setCursor(10, 42);
+    if (taskMgr && taskMgr->isReminderActive()) {
+        display_.print(taskMgr->reminderTitle().substring(0, 18));
+    } else {
+        display_.print("No active reminder");
+    }
+}
+
+void FaceRenderer::drawPomodoroScreen(TaskManager* taskMgr, unsigned long now) {
+    display_.setTextSize(1);
+    display_.setCursor(12, 4);
+    display_.print("POMODORO TIMER");
+    display_.drawFastHLine(10, 14, 108, PixelOn);
+
+    if (!taskMgr || taskMgr->pomodoroState() == PomodoroState::Stopped) {
+        display_.setCursor(25, 26);
+        display_.print("Timer Stopped");
+        display_.setCursor(15, 42);
+        display_.print("Start via Web App");
+        return;
+    }
+
+    bool isWork = taskMgr->pomodoroState() == PomodoroState::Work;
+    unsigned long remSec = taskMgr->pomodoroRemainingSec(now);
+    int minutes = remSec / 60;
+    int seconds = remSec % 60;
+
+    display_.setCursor(15, 22);
+    display_.print(isWork ? "[WORK FOCUS]" : "[COFFEE BREAK]");
+
+    char buf[10];
+    snprintf(buf, sizeof(buf), "%02d:%02d", minutes, seconds);
+    display_.setTextSize(2);
+    display_.setCursor(34, 38);
+    display_.print(buf);
+}
+
+void FaceRenderer::drawCanvasScreen(TaskManager* taskMgr, unsigned long now) {
+    if (!taskMgr) return;
+    const uint8_t* buf = taskMgr->canvasBuffer();
+    for (uint8_t y = 0; y < 64; ++y) {
+        for (uint8_t x = 0; x < 128; ++x) {
+            uint16_t idx = x + (y / 8) * 128;
+            uint8_t bit = y % 8;
+            if (buf[idx] & (1 << bit)) {
+                display_.drawPixel(x, y, PixelOn);
+            }
+        }
+    }
+}
+
+void FaceRenderer::drawQuotesScreen(TaskManager* taskMgr, unsigned long now) {
+    display_.drawRoundRect(4, 4, 120, 56, 4, PixelOn);
+    display_.setCursor(36, 8);
+    display_.print("DAILY TIP");
+    display_.drawFastHLine(10, 18, 108, PixelOn);
+
+    String quote = taskMgr ? taskMgr->currentQuote() : "Stay hungry, stay foolish.";
+    display_.setCursor(8, 24);
+    display_.print(quote.substring(0, 50));
+}
+
+void FaceRenderer::drawDeskGuardScreen(TaskManager* taskMgr, unsigned long now) {
+    const bool flash = (now / 300) % 2 == 0;
+    if (flash) {
+        display_.fillRect(0, 0, 128, 64, PixelOn);
+        display_.setTextColor(PixelOff);
+    }
+
+    display_.setTextSize(2);
+    display_.setCursor(18, 14);
+    display_.print("! BUSTED !");
+
+    display_.setTextSize(1);
+    display_.setCursor(15, 42);
+    display_.print("INTRUDER DETECTED");
+}
+
+void FaceRenderer::drawPetScreen(TaskManager* taskMgr, unsigned long now) {
+    const PetStats& pet = taskMgr ? taskMgr->petStats() : PetStats();
+    display_.setCursor(4, 4);
+    display_.print("VIRTUAL PET");
+    display_.drawFastHLine(4, 14, 120, PixelOn);
+
+    display_.setCursor(8, 22);
+    display_.print("HUNGER  : ");
+    display_.drawRect(68, 22, 50, 8, PixelOn);
+    display_.fillRect(68, 22, (pet.hunger * 50) / 100, 8, PixelOn);
+
+    display_.setCursor(8, 38);
+    display_.print("HAPPY   : ");
+    display_.drawRect(68, 38, 50, 8, PixelOn);
+    display_.fillRect(68, 38, (pet.happiness * 50) / 100, 8, PixelOn);
+
+    display_.setCursor(15, 52);
+    display_.print(pet.hunger > 30 ? "I feel great! :)" : "Feed me pizza! 🍕");
+}
+
+void FaceRenderer::drawDecisionScreen(TaskManager* taskMgr, unsigned long now) {
+    display_.setCursor(10, 4);
+    display_.print("MAGIC 8-BALL");
+    display_.drawFastHLine(10, 14, 108, PixelOn);
+
+    String answer = taskMgr ? taskMgr->lastAnswer() : "ASK ME!";
+    if (answer.length() == 0) answer = "ASK ME!";
+
+    display_.drawCircle(64, 40, 20, PixelOn);
+    display_.setTextSize(1);
+    display_.setCursor(45, 36);
+    display_.print(answer);
+}
+
+void FaceRenderer::drawNightScreen(unsigned long now) {
+    display_.fillCircle(105, 18, 12, PixelOn);
+    display_.fillCircle(100, 14, 10, PixelOff);
+
+    const int twinkle = static_cast<int>((now / 400) % 3);
+    drawSparkle(20, 12, 1 + twinkle);
+    drawSparkle(55, 8, 2 - twinkle);
+    drawSparkle(78, 22, 1 + twinkle);
+
+    display_.setCursor(30, 45);
+    display_.print("Good Night zZZ");
+}
+
+void FaceRenderer::drawRCCarFace(Emotion emotion, unsigned long now) {
+    const int speedTrail = static_cast<int>((now / 80) % 4);
+    display_.fillRoundRect(20 - speedTrail, 18, 30, 20, 6, PixelOn);
+    display_.fillRoundRect(78 + speedTrail, 18, 30, 20, 6, PixelOn);
+
+    display_.drawFastHLine(50, 28, 28, PixelOn);
+
+    display_.setCursor(38, 48);
+    display_.print("RC DRIVING");
 }
 
 void FaceRenderer::drawFace(Emotion emotion, unsigned long now) {
     drawEyes(emotion, now);
     drawMouth(emotion, now);
-    if (emotion == Emotion::Love) {
-        display_.setCursor(5, 5);
-        display_.print("<3");
-        display_.setCursor(108, 5);
-        display_.print("<3");
-    } else if (emotion == Emotion::Cool || emotion == Emotion::Happy) {
-        display_.fillRect(17, 20, 31, 10, PixelOn);
-        display_.fillRect(80, 20, 31, 10, PixelOn);
-        display_.drawLine(48, 24, 80, 24, PixelOn);
-    } else if (emotion == Emotion::Sleep) {
-        display_.setCursor(104, 7);
-        display_.print("Z Z");
-    }
 }
 
 void FaceRenderer::drawEyes(Emotion emotion, unsigned long now) {
@@ -62,38 +279,13 @@ void FaceRenderer::drawEyes(Emotion emotion, unsigned long now) {
         display_.drawLine(86, 25, 108, 25, PixelOn);
         return;
     }
-    if (emotion == Emotion::Surprised || emotion == Emotion::Excited) {
-        display_.drawCircle(31, 25, 11, PixelOn);
-        display_.drawCircle(97, 25, 11, PixelOn);
-        display_.fillCircle(31, 25, 4, PixelOn);
-        display_.fillCircle(97, 25, 4, PixelOn);
-        return;
-    }
     display_.fillRoundRect(18, 15, 27, 21, 5, PixelOn);
     display_.fillRoundRect(84, 15, 27, 21, 5, PixelOn);
-    if (emotion == Emotion::Angry) {
-        display_.drawLine(17, 14, 44, 20, PixelOn);
-        display_.drawLine(111, 14, 85, 20, PixelOn);
-    }
 }
 
 void FaceRenderer::drawMouth(Emotion emotion, unsigned long now) {
     if (emotion == Emotion::Sleep) return;
-    if (emotion == Emotion::Sad) {
-        display_.drawLine(56, 53, 60, 56, PixelOn);
-        display_.drawLine(60, 56, 68, 56, PixelOn);
-        display_.drawLine(68, 56, 72, 53, PixelOn);
-    } else if (emotion == Emotion::Surprised || emotion == Emotion::Excited) {
-        display_.drawRoundRect(57, 43, 14, 18, 5, PixelOn);
-    } else {
-        display_.drawLine(52, 43, 58, 47, PixelOn);
-        display_.drawLine(58, 47, 70, 47, PixelOn);
-        display_.drawLine(70, 47, 76, 43, PixelOn);
-    }
-    if (emotion == Emotion::Happy || emotion == Emotion::Cool) {
-        const int offset = static_cast<int>((now / 100) % 4);
-        for (int x = 8; x < 120; x += 18) display_.drawFastVLine(x, 50 - offset, 5 + offset, PixelOn);
-    }
+    display_.drawLine(52, 47, 76, 47, PixelOn);
 }
 
 void FaceRenderer::drawStatus(bool wifiOnline) {
@@ -127,13 +319,6 @@ void FaceRenderer::drawMusicNote(int x, int y, bool doubleNote) {
     if (y < 0 || y > 55) return;
     display_.fillCircle(x, y + 3, 2, PixelOn);
     display_.drawFastVLine(x + 2, y - 5, 8, PixelOn);
-    if (doubleNote) {
-        display_.fillCircle(x + 6, y + 1, 2, PixelOn);
-        display_.drawFastVLine(x + 8, y - 7, 8, PixelOn);
-        display_.fillRect(x + 2, y - 7, 7, 2, PixelOn);
-    } else {
-        display_.drawLine(x + 2, y - 5, x + 5, y - 3, PixelOn);
-    }
 }
 
 void FaceRenderer::drawSparkle(int x, int y, int size) {
@@ -149,7 +334,6 @@ void FaceRenderer::drawMusicEqualizer(float songTime, float beatPhase) {
         const int height = max(2, static_cast<int>(fabs(wave1) * 14.0f + wave2 * 4.0f));
         const int barX = 16 + i * 12;
         display_.fillRect(barX, 64 - height, 8, height, PixelOn);
-        for (int y = 64 - height; y < 64; y += 3) display_.drawFastHLine(barX, y, 8, PixelOff);
     }
 }
 
@@ -158,198 +342,74 @@ void FaceRenderer::drawMusicEyes(int bounceY, int grooveX) {
     const int leftX = 42 + grooveX;
     const int rightX = 86 + grooveX;
     display_.fillRoundRect(leftX - 16, ey - 9, 32, 18, 7, PixelOn);
-    display_.fillRect(leftX - 18, ey, 36, 12, PixelOff);
-    display_.drawFastHLine(leftX - 13, ey, 26, PixelOff);
     display_.fillRoundRect(rightX - 16, ey - 9, 32, 18, 7, PixelOn);
-    display_.fillRect(rightX - 18, ey, 36, 12, PixelOff);
-    display_.drawFastHLine(rightX - 13, ey, 26, PixelOff);
-    display_.fillRect(58 + grooveX, ey - 6, 12, 3, PixelOn);
-    for (int offset = -4; offset <= 4; offset += 4) {
-        display_.drawPixel(leftX - 18 + offset, ey + 8, PixelOn);
-        display_.drawPixel(rightX + 14 + offset, ey + 8, PixelOn);
-    }
 }
 
 void FaceRenderer::drawMusicMouth(int bounceY, int grooveX, float songTime, float beatPhase) {
     const int mouthX = 64 + grooveX;
     const int mouthY = 35 + bounceY;
-    const int mouthOpen = max(2, 4 + static_cast<int>(sin(beatPhase * PI) * 8.0f));
-    const int mouthWidth = max(4, 14 + static_cast<int>(cos(songTime * 6.0f) * 4.0f));
-    display_.fillRoundRect(mouthX - mouthWidth / 2, mouthY, mouthWidth, mouthOpen, 4, PixelOn);
-    if (mouthOpen > 5) {
-        display_.fillCircle(mouthX, mouthY + mouthOpen - 2, 2, PixelOff);
-    }
+    display_.fillRoundRect(mouthX - 7, mouthY, 14, 6, 3, PixelOn);
 }
 
 void FaceRenderer::drawMusicEyebrows(int bounceY, int grooveX) {
     const int y = 8 + bounceY;
     display_.drawLine(32 + grooveX, y - 2, 52 + grooveX, y - 4, PixelOn);
-    display_.drawLine(32 + grooveX, y - 1, 52 + grooveX, y - 3, PixelOn);
     display_.drawLine(76 + grooveX, y - 4, 96 + grooveX, y - 2, PixelOn);
-    display_.drawLine(76 + grooveX, y - 3, 96 + grooveX, y - 1, PixelOn);
 }
 
 void FaceRenderer::drawMusicParticles(float songTime) {
     const int rightY = static_cast<int>(60 - fmod(songTime * 35.0f, 60.0f));
-    const int leftY = static_cast<int>(60 - fmod(songTime * 35.0f + 30.0f, 60.0f));
-    drawMusicNote(110 + static_cast<int>(sin(songTime * 4.0f) * 4), rightY, true);
-    drawMusicNote(8 + static_cast<int>(cos(songTime * 3.5f) * 4), leftY, false);
-    const int sparkleSize = static_cast<int>(fabs(sin(songTime * 6.0f)) * 3.0f);
-    drawSparkle(22, 12, sparkleSize);
-    drawSparkle(106, 14, sparkleSize);
+    drawMusicNote(110, rightY, true);
 }
 
 void FaceRenderer::drawMusicBlink(int bounceY, unsigned long now) {
     const unsigned long blinkPhase = now % 5000;
     if (blinkPhase < 180) {
         const int ey = 22 + bounceY;
-        const int amount = blinkPhase < 90 ? blinkPhase / 3 : (180 - blinkPhase) / 3;
-        display_.fillRect(20, ey - 14, 42, amount, PixelOff);
-        display_.fillRect(66, ey - 14, 42, amount, PixelOff);
-        display_.fillRect(20, ey + 14 - amount, 42, amount, PixelOff);
-        display_.fillRect(66, ey + 14 - amount, 42, amount, PixelOff);
+        display_.fillRect(20, ey - 14, 42, 4, PixelOff);
+        display_.fillRect(66, ey - 14, 42, 4, PixelOff);
     }
 }
 
 void FaceRenderer::drawWeatherScreen(const WeatherData& weather, bool wifiOnline, unsigned long now) {
     char timeText[13] = "--:--:--";
-    char dateText[13] = "TIME OFFLINE";
     const time_t currentTime = time(nullptr);
     struct tm timeInfo;
     if (currentTime > 100000 && localtime_r(&currentTime, &timeInfo) != nullptr) {
         strftime(timeText, sizeof(timeText), "%I:%M:%S %p", &timeInfo);
-        static const char* const days[] = {"SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"};
-        static const char* const months[] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
-        snprintf(dateText, sizeof(dateText), "%s %02d %s", days[timeInfo.tm_wday], timeInfo.tm_mday, months[timeInfo.tm_mon]);
-    } else {
-        strcpy(timeText, "--:--:--");
-        strcpy(dateText, "SYNCING TIME");
     }
-    display_.drawFastHLine(3, 14, 122, PixelOn);
-    drawRobotIcon(now);
-    display_.setTextSize(1);
-    display_.setCursor(35, 3);
-    display_.print(dateText);
     display_.setTextSize(2);
-    display_.setCursor(19, 16);
+    display_.setCursor(15, 12);
     display_.print(timeText);
-    display_.drawFastHLine(19, 32, 90, PixelOn);
-    drawWeatherIcon(weather.weatherCode, now);
     display_.setTextSize(1);
-    display_.setCursor(39, 38);
-    if (weather.valid) {
-        display_.print(weather.temperature, 0);
-        display_.print(" C  ");
-        display_.print(weatherCodeText(weather.weatherCode));
-    } else {
-        display_.print("-- C  WEATHER OFFLINE");
-    }
-    display_.drawFastHLine(3, 52, 122, PixelOn);
-    display_.setCursor(5, 55);
-    display_.print("BAT 95%   NET ");
-    display_.print(wifiOnline ? "OK" : "OFF");
+    display_.setCursor(15, 38);
+    display_.print("TEMP: ");
+    display_.print(weather.valid ? String(weather.temperature, 0) + " C" : "-- C");
 }
 
 void FaceRenderer::drawRobotIcon(unsigned long now) {
-    const int bob = static_cast<int>((now / 180) % 2);
-    display_.drawRoundRect(3, 3 + bob, 24, 18, 4, PixelOn);
-    display_.fillCircle(10, 12 + bob, 2, PixelOn);
-    display_.fillCircle(20, 12 + bob, 2, PixelOn);
-    display_.drawFastHLine(10, 17 + bob, 10, PixelOn);
-    display_.drawFastVLine(15, 0 + bob, 3, PixelOn);
-    display_.fillCircle(15, 0 + bob, 1, PixelOn);
+    display_.drawRoundRect(3, 3, 24, 18, 4, PixelOn);
 }
 
 void FaceRenderer::drawWeatherIcon(int weatherCode, unsigned long now) {
-    const int shift = static_cast<int>((now / 300) % 3) - 1;
-    const int x = 17 + shift;
-    if (weatherCode == 0) {
-        display_.fillCircle(x, 43, 6, PixelOn);
-        display_.drawFastHLine(x - 10, 43, 21, PixelOn);
-        display_.drawFastVLine(x, 33, 21, PixelOn);
-    } else {
-        display_.fillCircle(x - 5, 43, 4, PixelOn);
-        display_.fillCircle(x + 1, 40, 6, PixelOn);
-        display_.fillCircle(x + 8, 43, 4, PixelOn);
-        display_.fillRect(x - 8, 43, 20, 6, PixelOn);
-        if (weatherCode >= 51) {
-            display_.drawFastVLine(x - 4, 51, 5, PixelOn);
-            display_.drawFastVLine(x + 3, 51, 5, PixelOn);
-            display_.drawFastVLine(x + 10, 51, 5, PixelOn);
-        }
-    }
+    display_.fillCircle(17, 43, 6, PixelOn);
 }
 
 void FaceRenderer::drawSimpleRobotFace(Emotion emotion, unsigned long now) {
-    const unsigned long cycle = now % 5000;
-    const bool blink = cycle >= 4550 && cycle < 4700 && emotion != Emotion::Sleep;
-    const int bob = emotion == Emotion::Excited ? static_cast<int>((now / 90) % 3) - 1 : static_cast<int>((now / 500) % 2);
+    const int bob = static_cast<int>((now / 500) % 2);
     const int eyeY = 20 + bob;
-    const int eyeWidth = emotion == Emotion::Surprised ? 24 : 27;
-    const int eyeHeight = blink || emotion == Emotion::Sleep ? 4 : (emotion == Emotion::Surprised ? 25 : 21);
-    const int eyeRadius = blink || emotion == Emotion::Sleep ? 2 : 7;
-    const int leftX = 30 - eyeWidth / 2;
-    const int rightX = 98 - eyeWidth / 2;
-
-    if (emotion == Emotion::Angry) {
-        display_.drawLine(18, 16, 42, 21, PixelOn);
-        display_.drawLine(110, 21, 86, 16, PixelOn);
-    } else if (emotion == Emotion::Sad) {
-        display_.drawLine(18, 21, 42, 16, PixelOn);
-        display_.drawLine(110, 16, 86, 21, PixelOn);
-    } else if (emotion == Emotion::Happy || emotion == Emotion::Love) {
-        display_.drawFastHLine(19, 16, 20, PixelOn);
-        display_.drawFastHLine(89, 16, 20, PixelOn);
-    }
-
-    if (emotion == Emotion::Love) {
-        display_.fillCircle(30, eyeY + 10, 10, PixelOn);
-        display_.fillCircle(98, eyeY + 10, 10, PixelOn);
-        display_.fillTriangle(20, eyeY + 10, 40, eyeY + 10, 30, eyeY + 22, PixelOn);
-        display_.fillTriangle(88, eyeY + 10, 108, eyeY + 10, 98, eyeY + 22, PixelOn);
-    } else {
-        display_.fillRoundRect(leftX, eyeY, eyeWidth, eyeHeight, eyeRadius, PixelOn);
-        display_.fillRoundRect(rightX, eyeY, eyeWidth, eyeHeight, eyeRadius, PixelOn);
-    }
-
-    if (emotion == Emotion::Sleep) {
-        display_.setCursor(108, 12);
-        display_.setTextSize(1);
-        display_.print("Z");
-    }
-
-    if (emotion == Emotion::Surprised || emotion == Emotion::Excited) {
-        display_.fillRoundRect(56, 47 + bob, 16, 12, 5, PixelOn);
-        display_.fillCircle(64, 55 + bob, 2, PixelOff);
-    } else if (emotion == Emotion::Sad) {
-        display_.drawLine(55, 53 + bob, 60, 50 + bob, PixelOn);
-        display_.drawLine(60, 50 + bob, 68, 50 + bob, PixelOn);
-        display_.drawLine(68, 50 + bob, 73, 53 + bob, PixelOn);
-    } else if (emotion == Emotion::Angry) {
-        display_.drawFastHLine(56, 53 + bob, 17, PixelOn);
-    } else {
-        const int mouthHeight = blink ? 3 : (emotion == Emotion::Happy || emotion == Emotion::Love ? 7 : 5);
-        display_.fillRoundRect(55, 48 + bob, 18, mouthHeight, 3, PixelOn);
-    }
+    display_.fillRoundRect(18, eyeY, 27, 21, 5, PixelOn);
+    display_.fillRoundRect(84, eyeY, 27, 21, 5, PixelOn);
 }
 
 void FaceRenderer::drawTimeDateScreen(unsigned long now) {
     char timeText[13] = "--:--:--";
-    char dateText[13] = "SYNCING TIME";
     const time_t currentTime = time(nullptr);
     struct tm timeInfo;
     if (currentTime > 100000 && localtime_r(&currentTime, &timeInfo) != nullptr) {
         strftime(timeText, sizeof(timeText), "%H:%M:%S", &timeInfo);
-        strftime(dateText, sizeof(dateText), "%a %d %b", &timeInfo);
     }
-    display_.setTextSize(1);
-    display_.setCursor(8, 8);
-    display_.print("TIME + DATE");
-    display_.drawFastHLine(8, 17, 112, PixelOn);
     display_.setTextSize(2);
     display_.setCursor(15, 25);
     display_.print(timeText);
-    display_.setTextSize(1);
-    display_.setCursor(39, 51);
-    display_.print(dateText);
 }

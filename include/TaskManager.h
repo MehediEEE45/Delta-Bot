@@ -1,0 +1,103 @@
+#pragma once
+
+#include <Arduino.h>
+
+struct TaskItem {
+    String text;
+    bool completed = false;
+};
+
+enum class PomodoroState { Stopped, Work, Break };
+
+struct PetStats {
+    uint8_t hunger = 80;    // 0 = Starving, 100 = Full
+    uint8_t happiness = 90; // 0 = Sad, 100 = Ecstatic
+    unsigned long lastDecayAt = 0;
+};
+
+class TaskManager {
+public:
+    TaskManager();
+
+    // Tasks API
+    bool addTask(const String& text);
+    bool toggleTask(size_t index);
+    bool deleteTask(size_t index);
+    void clearTasks();
+    size_t taskCount() const;
+    const TaskItem* getTask(size_t index) const;
+
+    // Notice API
+    void setNotice(const String& notice, unsigned long durationMs = 30000);
+    String notice() const;
+    bool hasActiveNotice(unsigned long now) const;
+
+    // Reminder API
+    void setReminder(const String& title, unsigned long targetTimeSec);
+    String reminderTitle() const;
+    unsigned long reminderTargetTime() const;
+    bool isReminderActive() const;
+    bool isReminderTriggered(unsigned long now) const;
+    void clearReminder();
+
+    // Pomodoro API
+    void startPomodoro(unsigned long now);
+    void pausePomodoro();
+    void resetPomodoro();
+    void updatePomodoro(unsigned long now);
+    PomodoroState pomodoroState() const;
+    unsigned long pomodoroRemainingSec(unsigned long now) const;
+
+    // Virtual Pet API
+    void updatePet(unsigned long now);
+    void feedPet();
+    void petPet();
+    const PetStats& petStats() const;
+
+    // Decision 8-Ball API
+    String askDecision(const String& question);
+    String lastAnswer() const;
+
+    // Quotes API
+    String randomQuote();
+    String currentQuote() const;
+
+    // Canvas API
+    void clearCanvas();
+    void setPixel(uint8_t x, uint8_t y, bool color);
+    const uint8_t* canvasBuffer() const;
+
+    // Desk Guard API
+    void setGuardArmed(bool armed);
+    bool isGuardArmed() const;
+    void triggerGuardAlarm();
+    bool isGuardAlarmTriggered() const;
+    void resetGuardAlarm();
+
+private:
+    TaskItem tasks_[5];
+    size_t taskCount_ = 0;
+
+    String notice_;
+    unsigned long noticeExpiresAt_ = 0;
+
+    String reminderTitle_;
+    unsigned long reminderTargetTime_ = 0;
+    bool reminderActive_ = false;
+
+    PomodoroState pomodoroState_ = PomodoroState::Stopped;
+    unsigned long pomodoroStartedAt_ = 0;
+    unsigned long pomodoroDurationMs_ = 0;
+    unsigned long pomodoroPausedRemainingMs_ = 0;
+
+    PetStats pet_;
+
+    String lastAnswer_;
+
+    String currentQuote_;
+
+    uint8_t canvasBuffer_[1024]; // 128x64 bits = 1024 bytes
+
+    bool guardArmed_ = false;
+    bool guardAlarmTriggered_ = false;
+};

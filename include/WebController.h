@@ -21,6 +21,17 @@ private:
     void updateTime();
     void updateWiFi();
     void motorCommand();
+
+    // New API Handlers
+    void handleTasksApi();
+    void handleNoticeApi();
+    void handleReminderApi();
+    void handlePomodoroApi();
+    void handlePetApi();
+    void handleDecisionApi();
+    void handleCanvasApi();
+    void handleGuardApi();
+
     bool restartRequested_ = false;
     bool handleCommand(const String& command);
 };

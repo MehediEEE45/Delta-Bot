@@ -1,6 +1,7 @@
 #include "AppController.h"
 #include "Config.h"
 #include <WiFi.h>
+#include <time.h>
 
 AppController::AppController(FaceRenderer& renderer, WeatherService& weather)
     : renderer_(renderer), weather_(weather) {}
@@ -15,25 +16,55 @@ void AppController::begin() {
 
 void AppController::update(unsigned long now) {
     settings_.updateBattery();
+    taskManager_.updatePet(now);
+    taskManager_.updatePomodoro(now);
+
     if (mode_ == AppMode::Weather) {
         weather_.update(now);
     }
-    if (emotion_ != Emotion::Sleep && now - lastInteractionAt_ >= Config::IDLE_SLEEP_MS) {
+
+    if (taskManager_.isGuardArmed() && !taskManager_.isGuardAlarmTriggered()) {
+        // Guard mode active
+    }
+
+    if (taskManager_.isGuardAlarmTriggered()) {
+        mode_ = AppMode::DeskGuard;
+        emotion_ = Emotion::Angry;
+    }
+
+    checkNightMode();
+
+    if (emotion_ != Emotion::Sleep && now - lastInteractionAt_ >= Config::IDLE_SLEEP_MS && mode_ != AppMode::Night && mode_ != AppMode::DeskGuard) {
         emotion_ = Emotion::Sleep;
     }
+
     if (mode_ == AppMode::Music && emotion_ == Emotion::Happy && now >= nextIdleEmotionAt_) {
         emotion_ = Emotion::Surprised;
         emotionUntil_ = now + Config::IDLE_SURPRISE_DURATION_MS;
         nextIdleEmotionAt_ = now + Config::IDLE_SURPRISE_INTERVAL_MS;
     }
+
     if (emotionUntil_ != 0 && now >= emotionUntil_) {
         emotionUntil_ = 0;
         emotion_ = mode_ == AppMode::Music ? Emotion::Happy : Emotion::Idle;
     }
+
     if (mode_ == AppMode::Music) {
         musicMode_.update(now, emotion_, renderer_, weather_.data(), WiFi.status() == WL_CONNECTED);
     } else {
-        clockMode_.update(mode_, now, emotion_, renderer_, weather_.data(), WiFi.status() == WL_CONNECTED);
+        clockMode_.update(mode_, now, emotion_, renderer_, weather_.data(), WiFi.status() == WL_CONNECTED, &taskManager_);
+    }
+}
+
+void AppController::checkNightMode() {
+    time_t rawTime = time(nullptr);
+    if (rawTime > 100000) {
+        struct tm* timeInfo = localtime(&rawTime);
+        int hour = timeInfo->tm_hour;
+        if ((hour >= Config::NIGHT_START_HOUR || hour < Config::NIGHT_END_HOUR) && mode_ != AppMode::Night && mode_ != AppMode::RCCar) {
+            mode_ = AppMode::Night;
+            emotion_ = Emotion::Sleep;
+        }
     }
 }
 
@@ -41,11 +72,20 @@ void AppController::handleTouch(TouchEvent event, unsigned long now) {
     if (event == TouchEvent::None) return;
     lastInteractionAt_ = now;
     nextIdleEmotionAt_ = now + Config::IDLE_SURPRISE_INTERVAL_MS;
+
+    if (taskManager_.isGuardArmed()) {
+        taskManager_.triggerGuardAlarm();
+        emotion_ = Emotion::Angry;
+        mode_ = AppMode::DeskGuard;
+        return;
+    }
+
     if (emotion_ == Emotion::Sleep && event != TouchEvent::LongPress) {
         emotion_ = mode_ == AppMode::Music ? Emotion::Happy : Emotion::Idle;
         emotionUntil_ = 0;
         return;
     }
+
     if (event == TouchEvent::SingleTap) {
         setEmotion(Emotion::Happy, 4000, now);
     } else if (event == TouchEvent::DoubleTap) {
@@ -64,9 +104,6 @@ void AppController::setMode(AppMode mode) {
 }
 
 void AppController::setEmotion(Emotion emotion, unsigned long durationMs, unsigned long now) {
-    if (mode_ != AppMode::Music) {
-        mode_ = AppMode::Music;
-    }
     emotion_ = emotion;
     emotionUntil_ = durationMs == 0 ? 0 : now + durationMs;
 }
@@ -76,16 +113,33 @@ Emotion AppController::emotion() const { return emotion_; }
 const WeatherData& AppController::weatherData() const { return weather_.data(); }
 void AppController::requestWeatherRefresh() { weather_.requestRefresh(); }
 void AppController::setDefaultMode(AppMode mode) { settings_.setDefaultMode(mode); }
-    const char* AppController::defaultModeName() const { return settings_.defaultMode() == AppMode::Music ? "music" : (settings_.defaultMode() == AppMode::Weather ? "weather" : "time"); }
+const char* AppController::defaultModeName() const { return settings_.defaultMode() == AppMode::Music ? "music" : (settings_.defaultMode() == AppMode::Weather ? "weather" : "time"); }
 uint8_t AppController::batteryPercent() const { return settings_.batteryPercent(); }
 const char* AppController::wifiSsid() const { return settings_.wifiSsid(); }
 const char* AppController::wifiPassword() const { return settings_.wifiPassword(); }
 void AppController::setWiFiCredentials(const String& ssid, const String& password) { settings_.setWiFiCredentials(ssid, password); }
 
+TaskManager& AppController::taskManager() {
+    return taskManager_;
+}
+
 const char* AppController::modeName() const {
-    if (mode_ == AppMode::Music) return "music";
-    if (mode_ == AppMode::Weather) return "weather";
-    return "time";
+    switch (mode_) {
+        case AppMode::Music: return "music";
+        case AppMode::Weather: return "weather";
+        case AppMode::Tasks: return "tasks";
+        case AppMode::Notice: return "notice";
+        case AppMode::Reminder: return "reminder";
+        case AppMode::Pomodoro: return "pomodoro";
+        case AppMode::Canvas: return "canvas";
+        case AppMode::Quotes: return "quotes";
+        case AppMode::DeskGuard: return "guard";
+        case AppMode::Pet: return "pet";
+        case AppMode::Decision: return "decision";
+        case AppMode::Night: return "night";
+        case AppMode::RCCar: return "rc_car";
+        default: return "time";
+    }
 }
 
 const char* AppController::emotionName() const {

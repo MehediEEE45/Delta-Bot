@@ -36,4 +36,19 @@ constexpr unsigned long IDLE_SLEEP_MS = 600000;
 constexpr unsigned long IDLE_SURPRISE_INTERVAL_MS = 30000;
 constexpr unsigned long IDLE_SURPRISE_DURATION_MS = 2000;
 constexpr unsigned long STATUS_REFRESH_MS = 1000;
+
+// Pomodoro Timer Constants
+constexpr unsigned long POMODORO_WORK_MS = 25 * 60 * 1000UL;
+constexpr unsigned long POMODORO_BREAK_MS = 5 * 60 * 1000UL;
+
+// Virtual Pet Constants
+constexpr unsigned long PET_DECAY_INTERVAL_MS = 60000UL; // decay stats every minute
+
+// Night Mode Hours
+constexpr int NIGHT_START_HOUR = 22; // 10 PM
+constexpr int NIGHT_END_HOUR = 6;    // 6 AM
+
+// Canvas Size
+constexpr uint8_t CANVAS_WIDTH = 128;
+constexpr uint8_t CANVAS_HEIGHT = 64;
 }

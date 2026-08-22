@@ -1,12 +1,12 @@
 #pragma once
 
+#include "AppMode.h"
 #include "ClockMode.h"
 #include "DeviceSettings.h"
 #include "MusicMode.h"
+#include "TaskManager.h"
 #include "TouchSensor.h"
 #include "Weather.h"
-
-class WebController;
 
 class AppController {
 public:
@@ -29,15 +29,20 @@ public:
     const char* modeName() const;
     const char* emotionName() const;
 
+    TaskManager& taskManager();
+
 private:
     FaceRenderer& renderer_;
     WeatherService& weather_;
     DeviceSettings settings_;
     MusicMode musicMode_;
     ClockMode clockMode_;
+    TaskManager taskManager_;
+
     AppMode mode_ = AppMode::TimeDate;
     Emotion emotion_ = Emotion::Idle;
     unsigned long emotionUntil_ = 0;
     unsigned long lastInteractionAt_ = 0;
     unsigned long nextIdleEmotionAt_ = 0;
+    void checkNightMode();
 };

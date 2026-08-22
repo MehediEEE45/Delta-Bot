@@ -3,9 +3,11 @@
 #include <Arduino.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1305.h>
+#include "AppMode.h"
 #include "Weather.h"
 
-enum class AppMode { Music, TimeDate, Weather };
+class TaskManager;
+
 enum class Emotion { Idle, Happy, Love, Excited, Cool, Sad, Angry, Sleep, Surprised };
 const char* weatherCodeText(int code);
 
@@ -13,7 +15,7 @@ class FaceRenderer {
 public:
     FaceRenderer();
     void begin();
-    void render(AppMode mode, Emotion emotion, const WeatherData& weather, bool wifiOnline, unsigned long now);
+    void render(AppMode mode, Emotion emotion, const WeatherData& weather, bool wifiOnline, unsigned long now, TaskManager* taskMgr = nullptr);
 
 private:
     Adafruit_SSD1305 display_;
@@ -35,4 +37,17 @@ private:
     void drawRobotIcon(unsigned long now);
     void drawWeatherIcon(int weatherCode, unsigned long now);
     void drawStatus(bool wifiOnline);
+
+    // New Screens
+    void drawTasksScreen(TaskManager* taskMgr, unsigned long now);
+    void drawNoticeScreen(TaskManager* taskMgr, unsigned long now);
+    void drawReminderScreen(TaskManager* taskMgr, unsigned long now);
+    void drawPomodoroScreen(TaskManager* taskMgr, unsigned long now);
+    void drawCanvasScreen(TaskManager* taskMgr, unsigned long now);
+    void drawQuotesScreen(TaskManager* taskMgr, unsigned long now);
+    void drawDeskGuardScreen(TaskManager* taskMgr, unsigned long now);
+    void drawPetScreen(TaskManager* taskMgr, unsigned long now);
+    void drawDecisionScreen(TaskManager* taskMgr, unsigned long now);
+    void drawNightScreen(unsigned long now);
+    void drawRCCarFace(Emotion emotion, unsigned long now);
 };

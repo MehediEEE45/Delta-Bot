@@ -1,4 +1,4 @@
-﻿#include "WebController.h"
+#include "WebController.h"
 #include <ArduinoJson.h>
 #include <WiFi.h>
 #include <sys/time.h>
@@ -7,18 +7,80 @@
 namespace {
 const char INDEX_HTML[] PROGMEM = R"rawliteral(
 <!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Delta</title><style>
-:root{--ink:#172026;--paper:#f4efe6;--accent:#e46b3e;--line:#cbbfaf}*{box-sizing:border-box}body{font-family:Georgia,serif;background:var(--paper);color:var(--ink);max-width:680px;margin:0 auto;padding:24px}header{border-bottom:3px solid var(--ink);display:flex;justify-content:space-between;align-items:end;padding-bottom:14px}h1{font-size:34px;margin:0}small,.status{font-family:monospace}.panel{border:1px solid var(--line);padding:16px;margin-top:18px;background:#fffaf2}h2{font-size:15px;text-transform:uppercase;letter-spacing:1px;margin:0 0 12px}button{background:var(--ink);color:white;border:0;padding:11px 14px;margin:4px;border-radius:3px;font-size:14px;cursor:pointer}button:hover,.active{background:var(--accent)}button:disabled{opacity:.45}#status{font-family:monospace;line-height:1.7;white-space:pre-line}
- :root{--ink:#172026;--paper:#f4efe6;--accent:#e46b3e;--line:#cbbfaf;--blue:#087bea;--red:#f51616}*{box-sizing:border-box}body{font-family:Georgia,serif;background:var(--paper);color:var(--ink);max-width:680px;margin:0 auto;padding:24px}header{border-bottom:3px solid var(--ink);display:flex;justify-content:space-between;align-items:end;padding-bottom:14px}h1{font-size:34px;margin:0}small,.status{font-family:monospace}.panel{border:1px solid var(--line);padding:16px;margin-top:18px;background:#fffaf2}h2{font-size:15px;text-transform:uppercase;letter-spacing:1px;margin:0 0 12px}button{background:var(--ink);color:white;border:0;padding:11px 14px;margin:4px;border-radius:3px;font-size:14px;cursor:pointer}button:hover,.active{background:var(--accent)}button:disabled{opacity:.45}#status{font-family:monospace;line-height:1.7;white-space:pre-line}.drive{background:#fff;border:1px solid #d8d8d8;padding:14px}.driveHead{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #bbb;padding-bottom:8px}.driveHead strong{font-family:Arial,sans-serif;font-size:16px}.driveState{font-family:monospace;font-size:12px;color:#087b35}.driveGrid{display:grid;grid-template-columns:repeat(3,74px);grid-template-rows:repeat(3,64px);gap:8px;justify-content:center;margin:16px auto}.driveBtn{background:var(--blue);border-radius:50%;font-size:0;width:64px;height:64px;position:relative;box-shadow:0 3px 0 #0560b5;touch-action:none}.driveBtn:active{transform:translateY(2px);box-shadow:none}.driveBtn:after{content:"";position:absolute;left:23px;top:20px;border-left:20px solid var(--red);border-top:12px solid transparent;border-bottom:12px solid transparent}.driveBtn.up:after{transform:rotate(-90deg);left:22px;top:18px}.driveBtn.down:after{transform:rotate(90deg);left:22px;top:14px}.driveBtn.left:after{transform:rotate(180deg);left:18px}.driveBtn.stop{background:#777;box-shadow:0 3px 0 #555;font-size:12px;font-weight:bold}.driveBtn.stop:after{display:none}.speedRow{font-family:monospace;text-align:center;font-size:13px}.speedRow input{width:100%;accent-color:#0a9b1d;background:linear-gradient(90deg,red,green)}
-</style></head><body><header><h1>Delta</h1><small id="clock">--:--:--</small></header><div class="panel"><h2>Live status</h2><div id="status">Connecting...</div><button onclick="refreshWeather()">Refresh weather</button></div>
-<div class="panel"><h2>Tabs</h2><button data-command="music" onclick="send('music')">Face / Music</button><button data-command="time" onclick="send('time')">Time + Date</button><button data-command="weather" onclick="send('weather')">Weather</button></div>
-<div class="panel"><h2>Startup mode</h2><button onclick="setStartup('music')">Start with Music</button><button onclick="setStartup('time')">Start with Time</button><button onclick="setStartup('weather')">Start with Weather</button></div>
-<div class="panel"><h2>Set clock</h2><input id="manualTime" type="datetime-local"><button onclick="setTime()">Set time and date</button></div>
-<div class="panel"><h2>Wi-Fi settings</h2><input id="wifiSsid" placeholder="Wi-Fi name"><input id="wifiPassword" type="password" placeholder="Wi-Fi password"><button onclick="saveWiFi()">Save Wi-Fi and reboot</button></div>
-<div class="panel"><h2>Drive</h2><label>Speed <input id="motorSpeed" type="range" min="0" max="255" value="180"></label><br><button onpointerdown="motor('forward')" onpointerup="releaseMotor()" onpointerleave="releaseMotor()">Forward</button><button onpointerdown="motor('left')" onpointerup="releaseMotor()" onpointerleave="releaseMotor()">Left</button><button onclick="releaseMotor()">Stop</button><button onpointerdown="motor('right')" onpointerup="releaseMotor()" onpointerleave="releaseMotor()">Right</button><button onpointerdown="motor('backward')" onpointerup="releaseMotor()" onpointerleave="releaseMotor()">Backward</button></div>
- <div class="panel drive"><div class="driveHead"><strong>Arduino RC Control Car</strong><span class="driveState" id="motorState">STOPPED</span></div><div class="speedRow">SPEED <span id="speedValue">70</span>%<input id="motorSpeed" type="range" min="0" max="255" value="180" oninput="document.querySelector('#speedValue').textContent=Math.round(this.value/255*100)"></div><div class="driveGrid"><span></span><button class="driveBtn up" aria-label="Forward" onpointerdown="motor('forward')" onpointerup="releaseMotor()" onpointerleave="releaseMotor()">Forward</button><span></span><button class="driveBtn left" aria-label="Left" onpointerdown="motor('left')" onpointerup="releaseMotor()" onpointerleave="releaseMotor()">Left</button><button class="driveBtn stop" onclick="releaseMotor()">PARK</button><button class="driveBtn right" aria-label="Right" onpointerdown="motor('right')" onpointerup="releaseMotor()" onpointerleave="releaseMotor()">Right</button><span></span><button class="driveBtn down" aria-label="Backward" onpointerdown="motor('backward')" onpointerup="releaseMotor()" onpointerleave="releaseMotor()">Backward</button><span></span></div></div>
-<div class="panel"><h2>Emotions</h2><button data-command="happy" onclick="send('happy')">Happy</button><button data-command="love" onclick="send('love')">Love</button><button data-command="excited" onclick="send('excited')">Excited</button><button data-command="cool" onclick="send('cool')">Cool</button><button data-command="sad" onclick="send('sad')">Sad</button><button data-command="angry" onclick="send('angry')">Angry</button><button data-command="surprised" onclick="send('surprised')">Surprised</button><button data-command="sleep" onclick="send('sleep')">Sleep</button></div>
-<script>let busy=false,motorTimer=0;async function send(command){if(busy)return;busy=true;document.querySelectorAll('[data-command]').forEach(b=>b.classList.toggle('active',b.dataset.command===command));try{await fetch('/api/command?value='+command,{method:'POST',signal:AbortSignal.timeout(1200)});refresh()}catch(error){}finally{busy=false}}async function motor(command){clearInterval(motorTimer);document.querySelector('#motorState').textContent=command.toUpperCase();let speed=document.querySelector('#motorSpeed').value;const sendMotor=()=>fetch('/api/motor?command='+command+'&speed='+speed,{method:'POST',signal:AbortSignal.timeout(700)}).catch(()=>{});await sendMotor();if(command!=='stop')motorTimer=setInterval(sendMotor,250)}function releaseMotor(){clearInterval(motorTimer);motorTimer=0;motor('stop')}async function setStartup(mode){await fetch('/api/settings?defaultMode='+mode,{method:'POST'});await refresh()}async function setTime(){let value=document.querySelector('#manualTime').value;if(value){let parts=value.split(/[-T:]/);let query='year='+parts[0]+'&month='+parts[1]+'&day='+parts[2]+'&hour='+parts[3]+'&minute='+parts[4];await fetch('/api/time?'+query,{method:'POST'});await refresh()}}async function saveWiFi(){let ssid=encodeURIComponent(document.querySelector('#wifiSsid').value);let password=encodeURIComponent(document.querySelector('#wifiPassword').value);if(ssid)await fetch('/api/wifi?ssid='+ssid+'&password='+password,{method:'POST'});document.querySelector('#status').textContent='Saved. Reconnecting...'}async function refreshWeather(){await fetch('/api/weather/refresh',{method:'POST'});await refresh()}async function refresh(){try{let response=await fetch('/api/status');let s=await response.json();document.querySelector('#status').textContent='MODE   '+s.mode+'\nFACE   '+s.emotion+'\nSTART  '+s.defaultMode+'\nMOTOR  '+s.motor+'\nNET    '+s.network+'\nWEATHER '+s.weather+' '+s.condition+' '+(s.temperature===null?'--':s.temperature+' C')+'\nUPDATED '+s.weatherUpdatedAt+' ms\nIP     '+s.ip;document.querySelector('#clock').textContent=s.time;document.querySelector('#motorState').textContent=s.motor.toUpperCase();document.querySelectorAll('[data-command]').forEach(b=>b.classList.toggle('active',b.dataset.command===s.mode||b.dataset.command===s.emotion))}catch(error){document.querySelector('#status').textContent='Delta unavailable'}}refresh();setInterval(refresh,2000)</script></body></html>
+<title>Delta-Bot Control Center</title><style>
+:root{--ink:#172026;--paper:#f4efe6;--accent:#e46b3e;--line:#cbbfaf;--blue:#087bea;--green:#0a9b1d}*{box-sizing:border-box}body{font-family:system-ui,sans-serif;background:var(--paper);color:var(--ink);max-width:720px;margin:0 auto;padding:16px}header{border-bottom:3px solid var(--ink);display:flex;justify-content:space-between;align-items:center;padding-bottom:12px}h1{font-size:26px;margin:0}.panel{border:1px solid var(--line);padding:14px;margin-top:14px;background:#fffaf2;border-radius:6px}h2{font-size:14px;text-transform:uppercase;letter-spacing:1px;margin:0 0 10px;color:var(--accent)}button{background:var(--ink);color:#fff;border:0;padding:8px 12px;margin:3px;border-radius:4px;font-size:13px;cursor:pointer}button:hover,.active{background:var(--accent)}input{padding:8px;margin:4px 0;border:1px solid var(--line);border-radius:4px;width:100%}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.driveGrid{display:grid;grid-template-columns:repeat(3,60px);gap:6px;justify-content:center;margin:10px auto}.driveBtn{background:var(--blue);height:50px;font-size:12px;border-radius:6px}.canvasGrid{display:grid;grid-template-columns:repeat(16,1fr);gap:1px;background:#ccc;padding:2px;max-width:320px;margin:10px auto}.cell{background:#fff;aspect-ratio:1;cursor:pointer}.cell.on{background:#000}
+</style></head><body>
+<header><h1>🤖 Delta-Bot</h1><small id="clock">--:--:--</small></header>
+
+<div class="panel"><h2>Live Status</h2><div id="status" style="font-family:monospace;white-space:pre-line">Connecting...</div><button onclick="refresh()">Refresh</button></div>
+
+<div class="panel"><h2>🏎️ RC Car Drive</h2>
+<div style="text-align:center">SPEED <input id="motorSpeed" type="range" min="0" max="255" value="180"></div>
+<div class="driveGrid">
+<span></span><button class="driveBtn" onpointerdown="motor('forward')" onpointerup="releaseMotor()">▲ FW</button><span></span>
+<button class="driveBtn" onpointerdown="motor('left')" onpointerup="releaseMotor()">◄ LT</button>
+<button class="driveBtn" style="background:#555" onclick="releaseMotor()">STOP</button>
+<button class="driveBtn" onpointerdown="motor('right')" onpointerup="releaseMotor()">RT ►</button>
+<span></span><button class="driveBtn" onpointerdown="motor('backward')" onpointerup="releaseMotor()">▼ BW</button><span></span>
+</div></div>
+
+<div class="panel"><h2>🎙️ Web Voice Command</h2>
+<button onclick="startVoice()" style="background:var(--green)">🎤 Speak Command</button><span id="voiceText"></span></div>
+
+<div class="panel"><h2>🎭 Emotions & Modes</h2>
+<div class="grid">
+<button onclick="send('happy')">😊 Happy</button><button onclick="send('love')">💖 Love</button><button onclick="send('angry')">😡 Angry</button>
+<button onclick="send('cool')">😎 Cool</button><button onclick="send('surprised')">😲 Surprise</button><button onclick="send('sleep')">😴 Sleep</button>
+<button onclick="send('time')">⏰ Time</button><button onclick="send('weather')">🌤️ Weather</button><button onclick="send('music')">🎵 Music</button>
+<button onclick="send('tasks')">📋 Tasks</button><button onclick="send('notice')">📢 Notice</button><button onclick="send('pomodoro')">⏱️ Pomodoro</button>
+<button onclick="send('quotes')">💡 Quotes</button><button onclick="send('pet')">🐶 Pet Mode</button><button onclick="send('decision')">🎲 8-Ball</button>
+</div></div>
+
+<div class="panel"><h2>🐶 Virtual Pet Station</h2>
+<button onclick="petAction('feed')">🍕 Feed Pizza</button><button onclick="petAction('pet')">🖐️ Pet Head</button></div>
+
+<div class="panel"><h2>🎲 Magic 8-Ball Decision Maker</h2>
+<input id="askText" placeholder="Ask a YES/NO question..."><button onclick="askQuestion()">Ask Delta-Bot</button></div>
+
+<div class="panel"><h2>📋 Task Manager</h2>
+<input id="taskText" placeholder="New task..."><button onclick="addTask()">Add Task</button>
+<div id="taskList"></div></div>
+
+<div class="panel"><h2>📢 Broadcast Notice</h2>
+<input id="noticeMsg" placeholder="Notice message..."><button onclick="sendNotice()">Send Notice</button></div>
+
+<div class="panel"><h2>⏱️ Pomodoro Timer</h2>
+<button onclick="pomoAction('start')">▶️ Start Work (25m)</button><button onclick="pomoAction('reset')">⏹️ Reset</button></div>
+
+<div class="panel"><h2>🎨 Pixel Art Canvas</h2>
+<div class="canvasGrid" id="canvasGrid"></div><button onclick="clearCanvas()">Clear Canvas</button></div>
+
+<div class="panel"><h2>🕵️‍♂️ Desk Guard Security</h2>
+<button onclick="toggleGuard(true)">🛡️ Arm Guard</button><button onclick="toggleGuard(false)">🔓 Disarm</button></div>
+
+<div class="panel"><h2>⚙️ Wi-Fi Setup</h2>
+<input id="wifiSsid" placeholder="SSID"><input id="wifiPassword" type="password" placeholder="Password"><button onclick="saveWiFi()">Save & Reboot</button></div>
+
+<script>
+let busy=false,motorTimer=0,pixels=new Array(256).fill(0);
+const grid=document.getElementById('canvasGrid');
+for(let i=0;i<256;i++){let c=document.createElement('div');c.className='cell';c.onclick=()=>{pixels[i]=pixels[i]?0:1;c.classList.toggle('on',pixels[i]);sendCanvas()};grid.appendChild(c)}
+async function send(c){await fetch('/api/command?value='+c,{method:'POST'});refresh()}
+async function motor(c){clearInterval(motorTimer);let s=document.getElementById('motorSpeed').value;fetch('/api/motor?command='+c+'&speed='+s,{method:'POST'});if(c!=='stop')motorTimer=setInterval(()=>fetch('/api/motor?command='+c+'&speed='+s,{method:'POST'}),250)}
+function releaseMotor(){clearInterval(motorTimer);motor('stop')}
+async function addTask(){let t=document.getElementById('taskText').value;if(t){await fetch('/api/tasks?text='+encodeURIComponent(t),{method:'POST'});document.getElementById('taskText').value='';refresh()}}
+async function sendNotice(){let m=document.getElementById('noticeMsg').value;if(m){await fetch('/api/notice?text='+encodeURIComponent(m),{method:'POST'});refresh()}}
+async function pomoAction(a){await fetch('/api/pomodoro?action='+a,{method:'POST'});refresh()}
+async function petAction(a){await fetch('/api/pet?action='+a,{method:'POST'});refresh()}
+async function askQuestion(){let q=document.getElementById('askText').value;if(q){await fetch('/api/decision?q='+encodeURIComponent(q),{method:'POST'});refresh()}}
+async function toggleGuard(a){await fetch('/api/guard?armed='+a,{method:'POST'});refresh()}
+async function sendCanvas(){await fetch('/api/canvas',{method:'POST',body:JSON.stringify(pixels)})}
+async function clearCanvas(){pixels.fill(0);document.querySelectorAll('.cell').forEach(c=>c.classList.remove('on'));sendCanvas()}
+async function saveWiFi(){let s=encodeURIComponent(document.getElementById('wifiSsid').value);let p=encodeURIComponent(document.getElementById('wifiPassword').value);if(s)await fetch('/api/wifi?ssid='+s+'&password='+p,{method:'POST'})}
+function startVoice(){if(!('webkitSpeechRecognition' in window)){alert('Speech Recognition not supported in this browser.');return}let r=new webkitSpeechRecognition();r.onresult=e=>{let t=e.results[0][0].transcript.toLowerCase();document.getElementById('voiceText').textContent=' Heard: "'+t+'"';if(t.includes('forward'))motor('forward');else if(t.includes('back'))motor('backward');else if(t.includes('left'))motor('left');else if(t.includes('right'))motor('right');else if(t.includes('stop'))releaseMotor();else if(t.includes('happy'))send('happy');else if(t.includes('sleep'))send('sleep');else if(t.includes('weather'))send('weather')};r.start()}
+async function refresh(){try{let r=await fetch('/api/status');let s=await r.json();document.getElementById('status').textContent='MODE: '+s.mode+' | FACE: '+s.emotion+' | BATT: '+s.battery+'%';document.getElementById('clock').textContent=s.time}catch(e){}}
+setInterval(refresh,2000);refresh();
+</script></body></html>
 )rawliteral";
 }
 
@@ -39,17 +101,26 @@ void WebController::update() {
 
 void WebController::registerRoutes() {
     server_.on("/", HTTP_GET, [this]() { server_.send(200, "text/html", INDEX_HTML); });
-    server_.onNotFound([this]() { server_.send(404, "text/plain", "Delta web server is running. Open http://192.168.4.1/"); });
     server_.on("/api/status", HTTP_GET, [this]() { sendStatus(); });
     server_.on("/api/weather/refresh", HTTP_POST, [this]() { refreshWeather(); });
     server_.on("/api/settings", HTTP_POST, [this]() { updateSettings(); });
     server_.on("/api/time", HTTP_POST, [this]() { updateTime(); });
     server_.on("/api/wifi", HTTP_POST, [this]() { updateWiFi(); });
     server_.on("/api/motor", HTTP_POST, [this]() { motorCommand(); });
+
     server_.on("/api/command", HTTP_POST, [this]() {
         const bool accepted = handleCommand(server_.arg("value"));
         server_.send(accepted ? 200 : 400, "application/json", accepted ? "{\"ok\":true}" : "{\"ok\":false}");
     });
+
+    server_.on("/api/tasks", HTTP_POST, [this]() { handleTasksApi(); });
+    server_.on("/api/notice", HTTP_POST, [this]() { handleNoticeApi(); });
+    server_.on("/api/reminder", HTTP_POST, [this]() { handleReminderApi(); });
+    server_.on("/api/pomodoro", HTTP_POST, [this]() { handlePomodoroApi(); });
+    server_.on("/api/pet", HTTP_POST, [this]() { handlePetApi(); });
+    server_.on("/api/decision", HTTP_POST, [this]() { handleDecisionApi(); });
+    server_.on("/api/canvas", HTTP_POST, [this]() { handleCanvasApi(); });
+    server_.on("/api/guard", HTTP_POST, [this]() { handleGuardApi(); });
 }
 
 void WebController::sendStatus() {
@@ -59,16 +130,11 @@ void WebController::sendStatus() {
     document["motor"] = motors_.commandName();
     document["defaultMode"] = app_.defaultModeName();
     document["battery"] = app_.batteryPercent();
-    document["network"] = WiFi.status() == WL_CONNECTED ? "online" : (WiFi.getMode() == WIFI_AP ? "offline_ap" : "offline");
+    document["network"] = WiFi.status() == WL_CONNECTED ? "online" : "offline";
     document["ip"] = WiFi.getMode() == WIFI_AP ? WiFi.softAPIP().toString() : WiFi.localIP().toString();
     time_t currentTime = time(nullptr);
     document["time"] = currentTime > 100000 ? String(ctime(&currentTime)).substring(0, 24) : "SYNCING";
-    const WeatherData& weather = app_.weatherData();
-    document["weather"] = weather.requesting ? "requesting" : (weather.lastRequestFailed && weather.valid ? "stale" : (weather.valid ? "ok" : (WiFi.status() == WL_CONNECTED ? "offline" : "no_internet")));
-    document["condition"] = weather.valid ? weatherCodeText(weather.weatherCode) : "unknown";
-    document["weatherUpdatedAt"] = weather.updatedAt;
-    if (weather.valid) document["temperature"] = weather.temperature;
-    else document["temperature"] = nullptr;
+
     String response;
     serializeJson(document, response);
     server_.send(200, "application/json", response);
@@ -76,7 +142,7 @@ void WebController::sendStatus() {
 
 void WebController::refreshWeather() {
     app_.requestWeatherRefresh();
-    server_.send(202, "application/json", "{\"ok\":true,\"status\":\"queued\"}");
+    server_.send(202, "application/json", "{\"ok\":true}");
 }
 
 bool WebController::handleCommand(const String& command) {
@@ -84,60 +150,141 @@ bool WebController::handleCommand(const String& command) {
     if (command == "music") app_.setMode(AppMode::Music);
     else if (command == "time" || command == "clock") app_.setMode(AppMode::TimeDate);
     else if (command == "weather") app_.setMode(AppMode::Weather);
+    else if (command == "tasks") app_.setMode(AppMode::Tasks);
+    else if (command == "notice") app_.setMode(AppMode::Notice);
+    else if (command == "reminder") app_.setMode(AppMode::Reminder);
+    else if (command == "pomodoro") app_.setMode(AppMode::Pomodoro);
+    else if (command == "canvas") app_.setMode(AppMode::Canvas);
+    else if (command == "quotes") app_.setMode(AppMode::Quotes);
+    else if (command == "pet") app_.setMode(AppMode::Pet);
+    else if (command == "decision") app_.setMode(AppMode::Decision);
     else if (command == "happy") app_.setEmotion(Emotion::Happy, 0, now);
     else if (command == "love") app_.setEmotion(Emotion::Love, 0, now);
-    else if (command == "excited") app_.setEmotion(Emotion::Excited, 0, now);
-    else if (command == "cool") app_.setEmotion(Emotion::Cool, 0, now);
-    else if (command == "sad") app_.setEmotion(Emotion::Sad, 0, now);
     else if (command == "angry") app_.setEmotion(Emotion::Angry, 0, now);
+    else if (command == "cool") app_.setEmotion(Emotion::Cool, 0, now);
     else if (command == "surprised") app_.setEmotion(Emotion::Surprised, 5000, now);
     else if (command == "sleep") app_.setEmotion(Emotion::Sleep, 0, now);
     else return false;
     return true;
 }
 
-void WebController::updateSettings() {
-    const String defaultMode = server_.arg("defaultMode");
-    if (defaultMode == "music") app_.setDefaultMode(AppMode::Music);
-    else if (defaultMode == "time") app_.setDefaultMode(AppMode::TimeDate);
-    else if (defaultMode == "weather") app_.setDefaultMode(AppMode::Weather);
-    else {
-        server_.send(400, "application/json", "{\"ok\":false}");
-        return;
+void WebController::handleTasksApi() {
+    String text = server_.arg("text");
+    if (text.length() > 0) {
+        app_.taskManager().addTask(text);
+        app_.setMode(AppMode::Tasks);
     }
     server_.send(200, "application/json", "{\"ok\":true}");
 }
 
-void WebController::updateTime() {
-    struct tm localTime = {};
-    localTime.tm_year = server_.arg("year").toInt() - 1900;
-    localTime.tm_mon = server_.arg("month").toInt() - 1;
-    localTime.tm_mday = server_.arg("day").toInt();
-    localTime.tm_hour = server_.arg("hour").toInt();
-    localTime.tm_min = server_.arg("minute").toInt();
-    localTime.tm_sec = 0;
-    if (localTime.tm_year < 100 || localTime.tm_mon < 0 || localTime.tm_mon > 11 || localTime.tm_mday < 1 || localTime.tm_mday > 31 || localTime.tm_hour < 0 || localTime.tm_hour > 23 || localTime.tm_min < 0 || localTime.tm_min > 59) {
-        server_.send(400, "application/json", "{\"ok\":false,\"error\":\"invalid_local_time\"}");
-        return;
+void WebController::handleNoticeApi() {
+    String text = server_.arg("text");
+    if (text.length() > 0) {
+        app_.taskManager().setNotice(text);
+        app_.setMode(AppMode::Notice);
     }
-    setenv("TZ", Config::TIMEZONE, 1);
-    tzset();
-    const time_t epoch = mktime(&localTime);
-    timeval timeValue = {epoch, 0};
-    settimeofday(&timeValue, nullptr);
+    server_.send(200, "application/json", "{\"ok\":true}");
+}
+
+void WebController::handleReminderApi() {
+    String title = server_.arg("title");
+    int minutes = server_.arg("minutes").toInt();
+    if (title.length() > 0 && minutes > 0) {
+        time_t target = time(nullptr) + minutes * 60;
+        app_.taskManager().setReminder(title, target);
+        app_.setMode(AppMode::Reminder);
+    }
+    server_.send(200, "application/json", "{\"ok\":true}");
+}
+
+void WebController::handlePomodoroApi() {
+    String action = server_.arg("action");
+    unsigned long now = millis();
+    if (action == "start") {
+        app_.taskManager().startPomodoro(now);
+        app_.setMode(AppMode::Pomodoro);
+    } else if (action == "reset") {
+        app_.taskManager().resetPomodoro();
+    }
+    server_.send(200, "application/json", "{\"ok\":true}");
+}
+
+void WebController::handlePetApi() {
+    String action = server_.arg("action");
+    if (action == "feed") {
+        app_.taskManager().feedPet();
+        app_.setEmotion(Emotion::Happy, 3000, millis());
+    } else if (action == "pet") {
+        app_.taskManager().petPet();
+        app_.setEmotion(Emotion::Love, 3000, millis());
+    }
+    app_.setMode(AppMode::Pet);
+    server_.send(200, "application/json", "{\"ok\":true}");
+}
+
+void WebController::handleDecisionApi() {
+    String q = server_.arg("q");
+    if (q.length() > 0) {
+        app_.taskManager().askDecision(q);
+        app_.setMode(AppMode::Decision);
+        motors_.drive(MotorCommand::Left, 150);
+        delay(150);
+        motors_.drive(MotorCommand::Right, 150);
+        delay(150);
+        motors_.stop();
+    }
+    server_.send(200, "application/json", "{\"ok\":true}");
+}
+
+void WebController::handleCanvasApi() {
+    if (server_.hasArg("plain")) {
+        String json = server_.arg("plain");
+        JsonDocument doc;
+        deserializeJson(doc, json);
+        JsonArray array = doc.as<JsonArray>();
+        app_.taskManager().clearCanvas();
+        uint8_t i = 0;
+        for (JsonVariant v : array) {
+            uint8_t x = (i % 16) * 8;
+            uint8_t y = (i / 16) * 4;
+            bool on = v.as<int>() == 1;
+            for (uint8_t dx = 0; dx < 8; ++dx) {
+                for (uint8_t dy = 0; dy < 4; ++dy) {
+                    app_.taskManager().setPixel(x + dx, y + dy, on);
+                }
+            }
+            i++;
+        }
+        app_.setMode(AppMode::Canvas);
+    }
+    server_.send(200, "application/json", "{\"ok\":true}");
+}
+
+void WebController::handleGuardApi() {
+    bool armed = server_.arg("armed") == "true";
+    app_.taskManager().setGuardArmed(armed);
+    if (armed) {
+        app_.setMode(AppMode::DeskGuard);
+    }
+    server_.send(200, "application/json", "{\"ok\":true}");
+}
+
+void WebController::updateSettings() {
+    server_.send(200, "application/json", "{\"ok\":true}");
+}
+
+void WebController::updateTime() {
     server_.send(200, "application/json", "{\"ok\":true}");
 }
 
 void WebController::updateWiFi() {
     const String ssid = server_.arg("ssid");
     const String password = server_.arg("password");
-    if (ssid.length() == 0 || ssid.length() > 64 || password.length() > 64) {
-        server_.send(400, "application/json", "{\"ok\":false,\"error\":\"invalid_wifi_settings\"}");
-        return;
+    if (ssid.length() > 0) {
+        app_.setWiFiCredentials(ssid, password);
+        restartRequested_ = true;
     }
-    app_.setWiFiCredentials(ssid, password);
-    restartRequested_ = true;
-    server_.send(200, "application/json", "{\"ok\":true,\"restarting\":true}");
+    server_.send(200, "application/json", "{\"ok\":true}");
 }
 
 void WebController::motorCommand() {
@@ -148,15 +295,14 @@ void WebController::motorCommand() {
     else if (command == "backward") motorCommand = MotorCommand::Backward;
     else if (command == "left") motorCommand = MotorCommand::Left;
     else if (command == "right") motorCommand = MotorCommand::Right;
-    else if (command != "stop") {
-        server_.send(400, "application/json", "{\"ok\":false,\"error\":\"invalid_motor_command\"}");
-        return;
-    }
+
     motors_.drive(motorCommand, static_cast<uint8_t>(requestedSpeed));
+    app_.setMode(AppMode::RCCar);
+
     const unsigned long now = millis();
     if (motorCommand == MotorCommand::Forward) app_.setEmotion(Emotion::Excited, 0, now);
     else if (motorCommand == MotorCommand::Backward) app_.setEmotion(Emotion::Sad, 0, now);
     else if (motorCommand == MotorCommand::Left || motorCommand == MotorCommand::Right) app_.setEmotion(Emotion::Cool, 0, now);
-    else app_.setEmotion(Emotion::Happy, 0, now);
+
     server_.send(200, "application/json", "{\"ok\":true}");
 }
