@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Arduino.h>
+#include <Preferences.h>
 
 struct TaskItem {
     String text;
@@ -18,6 +19,7 @@ struct PetStats {
 class TaskManager {
 public:
     TaskManager();
+    void begin();
 
     // Tasks API
     bool addTask(const String& text);
@@ -74,7 +76,12 @@ public:
     bool isGuardAlarmTriggered() const;
     void resetGuardAlarm();
 
+    void saveToFlash();
+    void loadFromFlash();
+
 private:
+    Preferences prefs_;
+
     TaskItem tasks_[5];
     size_t taskCount_ = 0;
 
@@ -93,10 +100,9 @@ private:
     PetStats pet_;
 
     String lastAnswer_;
-
     String currentQuote_;
 
-    uint8_t canvasBuffer_[1024]; // 128x64 bits = 1024 bytes
+    uint8_t canvasBuffer_[1024];
 
     bool guardArmed_ = false;
     bool guardAlarmTriggered_ = false;

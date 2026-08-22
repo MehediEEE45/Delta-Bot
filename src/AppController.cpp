@@ -8,6 +8,7 @@ AppController::AppController(FaceRenderer& renderer, WeatherService& weather)
 
 void AppController::begin() {
     settings_.begin();
+    taskManager_.begin();
     mode_ = settings_.defaultMode();
     emotion_ = mode_ == AppMode::Music ? Emotion::Happy : Emotion::Idle;
     lastInteractionAt_ = millis();

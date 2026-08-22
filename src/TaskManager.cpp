@@ -30,17 +30,54 @@ TaskManager::TaskManager() {
     currentQuote_ = QUOTES[0];
 }
 
+void TaskManager::begin() {
+    loadFromFlash();
+}
+
+void TaskManager::loadFromFlash() {
+    prefs_.begin("task_mgr", true); // read-only mode
+    taskCount_ = prefs_.getUChar("t_count", 0);
+    if (taskCount_ > 5) taskCount_ = 0;
+
+    for (size_t i = 0; i < taskCount_; ++i) {
+        String keyT = "t_" + String(i);
+        String keyC = "tc_" + String(i);
+        tasks_[i].text = prefs_.getString(keyT.c_str(), "");
+        tasks_[i].completed = prefs_.getBool(keyC.c_str(), false);
+    }
+
+    pet_.hunger = prefs_.getUChar("p_hunger", 80);
+    pet_.happiness = prefs_.getUChar("p_happy", 90);
+    prefs_.end();
+}
+
+void TaskManager::saveToFlash() {
+    prefs_.begin("task_mgr", false); // read-write mode
+    prefs_.putUChar("t_count", static_cast<uint8_t>(taskCount_));
+    for (size_t i = 0; i < taskCount_; ++i) {
+        String keyT = "t_" + String(i);
+        String keyC = "tc_" + String(i);
+        prefs_.putString(keyT.c_str(), tasks_[i].text);
+        prefs_.putBool(keyC.c_str(), tasks_[i].completed);
+    }
+    prefs_.putUChar("p_hunger", pet_.hunger);
+    prefs_.putUChar("p_happy", pet_.happiness);
+    prefs_.end();
+}
+
 bool TaskManager::addTask(const String& text) {
     if (taskCount_ >= 5 || text.length() == 0) return false;
     tasks_[taskCount_].text = text;
     tasks_[taskCount_].completed = false;
     taskCount_++;
+    saveToFlash();
     return true;
 }
 
 bool TaskManager::toggleTask(size_t index) {
     if (index >= taskCount_) return false;
     tasks_[index].completed = !tasks_[index].completed;
+    saveToFlash();
     return true;
 }
 
@@ -50,11 +87,13 @@ bool TaskManager::deleteTask(size_t index) {
         tasks_[i] = tasks_[i + 1];
     }
     taskCount_--;
+    saveToFlash();
     return true;
 }
 
 void TaskManager::clearTasks() {
     taskCount_ = 0;
+    saveToFlash();
 }
 
 size_t TaskManager::taskCount() const {
@@ -161,16 +200,19 @@ void TaskManager::updatePet(unsigned long now) {
         pet_.lastDecayAt = now;
         if (pet_.hunger > 5) pet_.hunger -= 2;
         if (pet_.happiness > 5) pet_.happiness -= 1;
+        saveToFlash();
     }
 }
 
 void TaskManager::feedPet() {
     pet_.hunger = min<uint8_t>(100, pet_.hunger + 25);
     pet_.happiness = min<uint8_t>(100, pet_.happiness + 10);
+    saveToFlash();
 }
 
 void TaskManager::petPet() {
     pet_.happiness = min<uint8_t>(100, pet_.happiness + 20);
+    saveToFlash();
 }
 
 const PetStats& TaskManager::petStats() const {
