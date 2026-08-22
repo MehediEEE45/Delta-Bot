@@ -47,11 +47,11 @@ void AppController::handleTouch(TouchEvent event, unsigned long now) {
         return;
     }
     if (event == TouchEvent::SingleTap) {
-        setMode(mode_ == AppMode::Music ? AppMode::TimeDate : AppMode::Music);
+        setEmotion(Emotion::Happy, 4000, now);
     } else if (event == TouchEvent::DoubleTap) {
         setEmotion(Emotion::Love, 5000, now);
     } else if (event == TouchEvent::TripleTap) {
-        setEmotion(Emotion::Cool, 5000, now);
+        setEmotion(Emotion::Angry, 6000, now);
     } else if (event == TouchEvent::LongPress) {
         setEmotion(Emotion::Sleep, 0, now);
     }
