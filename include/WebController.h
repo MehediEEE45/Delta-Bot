@@ -14,15 +14,13 @@ private:
     AppController& app_;
     MotorController& motors_;
     WebServer server_{80};
+
     void registerRoutes();
     void sendStatus();
     void refreshWeather();
-    void updateSettings();
-    void updateTime();
     void updateWiFi();
     void motorCommand();
 
-    // New API Handlers
     void handleTasksApi();
     void handleNoticeApi();
     void handleReminderApi();
@@ -31,7 +29,16 @@ private:
     void handleDecisionApi();
     void handleCanvasApi();
     void handleGuardApi();
+    void handleQuoteApi();
+    void handleDefaultModeApi();
+
+    // Returns true when the request may proceed; otherwise it has already been
+    // answered with a 401 challenge.
+    bool requireAuth();
+    void sendOk();
+    void sendError(int code, const char* message);
 
     bool restartRequested_ = false;
+    unsigned long restartAt_ = 0;
     bool handleCommand(const String& command);
 };
