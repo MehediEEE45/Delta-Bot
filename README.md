@@ -48,13 +48,13 @@
                | GPIO 8  (SDA)   ---> OLED SDA    |
                | GPIO 9  (SCL)   ---> OLED SCL    |
                | GPIO 4  (TOUCH) ---> TTP223 SIG  |
-               | GPIO 3  (PWM_L) ---> DRV8833 PWMA|
-               | GPIO 5  (IN1_L) ---> DRV8833 AIN1|
-               | GPIO 6  (IN2_L) ---> DRV8833 AIN2|
-               | GPIO 0  (PWM_R) ---> DRV8833 PWMB|
-               | GPIO 7  (IN1_R) ---> DRV8833 BIN1|
-               | GPIO 10 (IN2_R) ---> DRV8833 BIN2|
-               | GPIO 1  (STBY)  ---> DRV8833 STBY|
+               | GPIO 3  (PWM_L) ---> TB6612 PWMA  |
+               | GPIO 5  (IN1_L) ---> TB6612 AIN1  |
+               | GPIO 6  (IN2_L) ---> TB6612 AIN2  |
+               | GPIO 0  (PWM_R) ---> TB6612 PWMB  |
+               | GPIO 7  (IN1_R) ---> TB6612 BIN1  |
+               | GPIO 10 (IN2_R) ---> TB6612 BIN2  |
+               | GPIO 1  (STBY)  ---> TB6612 STBY  |
                | 3V3 / GND       ---> VCC / GND   |
                +----------------------------------+
 ```
@@ -69,7 +69,7 @@
                                                            │ PWM / Motor Direction
                                                            ▼
 ┌──────────────────────┐    Dual DC Motors     ┌────────────────────────┐
-│   Left & Right Wheels│ <==================== │ DRV8833 Motor Driver   │
+│   Left & Right Wheels│ <==================== │ TB6612FNG Motor Driver │
 └──────────────────────┘                       └────────────────────────┘
                                                            ▲
                                                            │ Capacitive Signal
@@ -88,7 +88,7 @@
 graph TD
     A[User Touch Input / Web UI] -->|Commands & Gestures| B[AppController State Engine]
     B -->|State & Emotions| C[FaceRenderer OLED Graphics]
-    B -->|Drive Signals| D[MotorController DRV8833]
+    B -->|Drive Signals| D[MotorController TB6612FNG]
     B -->|Data Sync| E[TaskManager & Flash NVS]
     F[Open-Meteo API / NTP Server] -->|Wi-Fi Data| B
     C -->|Draw Frames| G[128x64 OLED Display]
@@ -103,9 +103,29 @@ graph TD
 | **ESP32-C3 DevKitM-1** | 1 | 320KB RAM, 4MB Flash, Wi-Fi & BLE | Core Board |
 | **OLED Display (I2C)** | 1 | 128x64 SSD1305 / SSD1306 | SDA: `GPIO 8`, SCL: `GPIO 9` |
 | **Touch Sensor Module** | 1 | TTP223 Capacitive Touch | `GPIO 4` |
-| **Motor Driver Module** | 1 | DRV8833 / TB6612 Dual H-Bridge | PWM L: `3`, IN1 L: `5`, IN2 L: `6`<br>PWM R: `0`, IN1 R: `7`, IN2 R: `10`<br>STBY: `GPIO 1` |
+| **Motor Driver Module** | 1 | TB6612FNG Dual H-Bridge (see note) | PWM L: `3`, IN1 L: `5`, IN2 L: `6`<br>PWM R: `0`, IN1 R: `7`, IN2 R: `10`<br>STBY: `GPIO 1` |
 | **DC Gear Motors** | 2 | N20 Micro Gear Motors (6V) | Motor Outputs |
 | **LiPo Battery & Charger**| 1 | 3.7V 1000mAh Battery + TP4056 | Power Bus |
+
+> **Motor driver note.** The firmware drives a **separate PWM pin plus two
+> direction pins per channel** (`PWMA/AIN1/AIN2` + `STBY`), which is the
+> **TB6612FNG** interface. A **DRV8833 will not work with this wiring**: it has
+> no `PWMA`/`PWMB` pins at all — PWM is applied directly to `AIN1`/`AIN2`, and
+> its enable pin is `nSLEEP`, not `STBY`. If you only have a DRV8833, tie
+> `GPIO 1` to `nSLEEP` and rework `MotorController::setMotor()` to PWM the
+> direction pins instead; otherwise the motors will only ever run full speed.
+
+> **Boot note (ESP32-C3 strapping pins).** I²C uses `GPIO 8` and `GPIO 9`, both
+> of which are strapping pins on the C3. This is the Arduino default and is
+> normally fine, but if your OLED module has no I²C pull-ups — or a long cable
+> drags `GPIO 9` low at reset — the chip boots into serial-download mode and
+> appears "dead". If the bot sometimes fails to start, check for 4.7k pull-ups
+> to 3V3 on SDA/SCL and keep the I²C leads short.
+
+> **Battery gauge.** `Config::BATTERY_ADC_PIN` ships as `255` (disabled) because
+> no divider is wired by default. Until you set a real ADC pin, the status API
+> reports `batteryMeasured: false` rather than passing a constant off as a
+> reading.
 
 ---
 
@@ -138,15 +158,28 @@ Copy `include/Secrets.h.example` to `include/Secrets.h`:
 ```bash
 cp include/Secrets.h.example include/Secrets.h
 ```
-Edit `include/Secrets.h` with your local Wi-Fi credentials:
+Edit `include/Secrets.h` with your credentials:
 ```cpp
 #pragma once
 
 namespace Config {
-constexpr char WIFI_SSID[] = "YOUR_WIFI_NAME";
+constexpr char WIFI_SSID[] = "YOUR_WIFI_SSID";
 constexpr char WIFI_PASSWORD[] = "YOUR_WIFI_PASSWORD";
+
+// Password for the fallback AP Delta-Bot starts when it cannot join a network.
+// Must be at least 8 characters or the AP falls back to open.
+constexpr char FALLBACK_AP_PASSWORD[] = "CHANGE_ME_AP";
+
+// HTTP basic-auth for the web dashboard. Every state-changing endpoint is
+// behind this. Leave WEB_PASSWORD empty to disable auth (not recommended --
+// anyone on your network could then drive the motors and rewrite your Wi-Fi
+// credentials).
+constexpr char WEB_USER[] = "delta";
+constexpr char WEB_PASSWORD[] = "CHANGE_ME_WEB";
 }
 ```
+
+`include/Secrets.h` is gitignored, so none of these values are committed.
 
 ### 4. Build and Upload
 1. Connect your ESP32-C3 board via USB.
