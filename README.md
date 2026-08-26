@@ -1,212 +1,293 @@
-# 🤖 Delta-Bot (Deskbot) - Ultimate AI Companion & RC Robot
+# Delta-Bot
 
-<div align="center">
+A small desk robot built on an ESP32-C3. It shows a face on a 128×64 OLED,
+reacts when you tap it, drives around from a web page on your phone, and keeps
+a to-do list and a Pomodoro timer that you can see without picking up anything.
 
-![Delta-Bot Hero Banner](docs/images/delta_bot_hero.png)
+I built it because I wanted something on my desk that felt like it was *there* —
+not another blinking status LED. Most of the work went into the face.
 
-[![PlatformIO](https://img.shields.io/badge/PlatformIO-Build%20%26%20Upload-orange?style=for-the-badge&logo=platformio)](https://platformio.org/)
-[![Board](https://img.shields.io/badge/ESP32--C3-DevKitM--1-red?style=for-the-badge&logo=espressif)](https://www.espressif.com/)
-[![Framework](https://img.shields.io/badge/Framework-Arduino-blue?style=for-the-badge&logo=arduino)](https://www.arduino.cc/)
-[![Language](https://img.shields.io/badge/Language-C%2B%2B17-00599C?style=for-the-badge&logo=cplusplus)](https://isocpp.org/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)](LICENSE)
+![Delta-Bot concept render](docs/images/delta_bot_hero.png)
 
-*An intelligent, expressive desktop companion robot powered by ESP32-C3 with real-time OLED face animations, RC drive mode, Web Speech AI voice control, virtual pet Tamagotchi features, Pomodoro study timers, live pixel art canvas, and flash persistence.*
+> **That image is a concept render, not a photo of the build.** I made it early
+> on to figure out the proportions. The real bot has two wheels, no ultrasonic
+> sensors, no antenna and no headlights — see the parts list below for what
+> actually goes in it. Real photos are coming; the slots are further down.
 
-[Features](#-feature-suite) • [Circuit Diagram](#-circuit-diagram--schematic) • [Architecture](#-system-architecture) • [Getting Started](#-getting-started) • [Web Control](#-web-control-dashboard)
-
-</div>
+[![Board](https://img.shields.io/badge/ESP32--C3-Arduino-red?style=flat-square&logo=espressif)](https://www.espressif.com/)
+[![Build](https://img.shields.io/badge/PlatformIO-builds%20clean-orange?style=flat-square&logo=platformio)](https://platformio.org/)
+[![License](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
 
 ---
 
-## 🌟 Feature Suite
+## What it does
 
-| Feature | Description |
+| | |
 | :--- | :--- |
-| 🏎️ **RC Car Drive Mode** | Remote control driving via Web D-Pad with speed control and a 1s motor watchdog |
-| 🎭 **Emotion Engine** | Eight emotion states (Happy, Love, Excited, Cool, Sad, Angry, Surprised, Sleep) driven by touch and the web UI. Distinct per-emotion faces are in progress — see the roadmap. |
-| 🎙️ **Web Speech AI Voice Control** | Voice commands directly from your smartphone browser (*"Forward"*, *"Happy"*, *"Sleep"*, *"Weather"*) |
-| 🐶 **Virtual Pet (Tamagotchi Mode)**| Hunger 🍕 & Happiness ❤️ meters with web feeding and touch head petting |
-| 🎲 **Magic 8-Ball Decision Maker** | Ask YES/NO questions and receive animated answers with motor wheel shakes |
-| ⏰ **NTP Clock & Live Weather** | NTP time sync plus animated weather icons (sun, cloud, rain, snow, storm) from Open-Meteo, fetched on a background task |
-| 📋 **Task Show & Notice Board** | Add To-Do lists via Web UI with checkbox indicators (`[x]`) and marquee announcements |
-| ⏱️ **Pomodoro Productivity Timer** | 25-minute work focus + 5-minute coffee break, with a sweeping progress ring, pause and resume |
-| 🎨 **Live Pixel Art Canvas** | Draw on mobile screen and render drawings instantly on Delta-Bot's OLED face |
-| 🕵️‍♂️ **Desk Guard Security Mode** | Touch-based intruder detection triggering a flashing `! BUSTED !` alarm face and a warning wheel pulse |
-| 🌙 **Smart Night Light Mode** | Automatic ambient night mode with glowing moon & star animations after 10 PM |
-| 💾 **Flash Persistence (NVS)** | Saved tasks, pet levels, and network settings preserved in ESP32 Flash across reboots |
+| **Animated face** | Nine expressions on the OLED, each with its own eye shape, brow angle and mouth. Blinks at random intervals, drifts slightly when idle, and glances around on its own. |
+| **Touch** | One capacitive pad. Single, double and triple taps each do something different; hold it to put the bot to sleep. |
+| **RC driving** | A D-pad on the web page drives the two motors. The eyes lean into the turn. Motors cut out after one second if the browser stops sending, so a dropped connection can't run it off the desk. |
+| **Voice** | The web page uses the browser's own speech recognition — say "forward", "left", "happy". No cloud service, no API key; it only works in Chrome-family browsers. |
+| **Clock and weather** | NTP time, plus current conditions from Open-Meteo with drawn icons for sun, cloud, rain, snow and storms. |
+| **To-do list** | Up to five tasks, added from the web page, ticked off from either end. Survives a reboot. |
+| **Pomodoro** | 25 on, 5 off, with a ring that sweeps around the display as the interval burns down. Pauses and resumes properly. |
+| **Virtual pet** | Hunger and happiness meters that decay slowly. Feed it from the web page or pat the touch sensor. |
+| **Pixel canvas** | A 16×16 grid on your phone draws straight onto the OLED. |
+| **Desk guard** | Arm it, and anyone who touches the bot gets a flashing alarm face and a wheel twitch. |
+| **Night mode** | Switches to a moon-and-stars screen after 22:00 and puts your mode back at 06:00. |
+
+Everything is served from the bot itself. There's no app and nothing phones home;
+the only outbound request is the weather fetch.
 
 ---
 
-## ⚡ Circuit Diagram & Schematic
+## Hardware
 
-### Hardware Pin Mapping
+### Parts list
+
+| Part | Qty | Notes |
+| :--- | :---: | :--- |
+| ESP32-C3 SuperMini | 1 | Any ESP32-C3 board works. Build targets `esp32-c3-devkitm-1`, which is the standard stand-in — PlatformIO has no SuperMini definition. |
+| 128×64 OLED, I²C | 1 | SSD1306 or SSD1305, 0.96". Get the one with the header on the **long** edge if you're printing the lid. |
+| TB6612FNG motor driver | 1 | **Not a DRV8833.** See the warning below. |
+| N20 gear motors, 6 V | 2 | 100–200 RPM is about right. Faster than that and it skitters. |
+| TTP223 touch module | 1 | The cheap 3-pin one. |
+| LiPo 3.7 V, ~1000 mAh | 1 | Plus a TP4056 charger board — get the variant **with** DW01 protection. |
+| Wheels, 34 mm | 2 | For a 3 mm D-shaft. |
+
+> ### The motor driver is not interchangeable
+>
+> The firmware drives **one PWM pin plus two direction pins per channel**
+> (`PWMA` / `AIN1` / `AIN2`, plus `STBY`). That's the TB6612FNG interface.
+>
+> A **DRV8833 will not work with this wiring.** It has no `PWMA`/`PWMB` pins at
+> all — you PWM the direction pins directly — and its enable is `nSLEEP`, not
+> `STBY`. Wire a DRV8833 to this pinout and the motors will only ever run flat
+> out. If a DRV8833 is what you have, tie `GPIO 1` to `nSLEEP` and rework
+> `MotorController::setMotor()` to PWM the direction pins instead.
+
+### Pinout
+
+| Signal | GPIO | Goes to |
+| :--- | :---: | :--- |
+| I²C SDA | 8 | OLED SDA |
+| I²C SCL | 9 | OLED SCL |
+| Touch | 4 | TTP223 SIG |
+| Left PWM | 3 | TB6612 PWMA |
+| Left dir 1 | 5 | TB6612 AIN1 |
+| Left dir 2 | 6 | TB6612 AIN2 |
+| Right PWM | 0 | TB6612 PWMB |
+| Right dir 1 | 7 | TB6612 BIN1 |
+| Right dir 2 | 10 | TB6612 BIN2 |
+| Standby | 1 | TB6612 STBY |
+
+All of these live in [`include/Config.h`](include/Config.h) — the C3's GPIO
+matrix means you can move any of them without touching another file.
+
+### Wiring
 
 ```text
-               +----------------------------------+
-               |        ESP32-C3 DevKitM-1        |
-               +----------------------------------+
-               | GPIO 8  (SDA)   ---> OLED SDA    |
-               | GPIO 9  (SCL)   ---> OLED SCL    |
-               | GPIO 4  (TOUCH) ---> TTP223 SIG  |
-               | GPIO 3  (PWM_L) ---> TB6612 PWMA  |
-               | GPIO 5  (IN1_L) ---> TB6612 AIN1  |
-               | GPIO 6  (IN2_L) ---> TB6612 AIN2  |
-               | GPIO 0  (PWM_R) ---> TB6612 PWMB  |
-               | GPIO 7  (IN1_R) ---> TB6612 BIN1  |
-               | GPIO 10 (IN2_R) ---> TB6612 BIN2  |
-               | GPIO 1  (STBY)  ---> TB6612 STBY  |
-               | 3V3 / GND       ---> VCC / GND   |
-               +----------------------------------+
+                     ┌──────────────────┐
+     USB 5V ────────▶│  TP4056 + DW01   │
+                     │   charge board   │
+                     └───┬──────────┬───┘
+                    BAT+ │          │ OUT+
+                  ┌──────┴────┐     │
+                  │ LiPo 3.7V │     │  3.2 - 4.2 V rail
+                  └───────────┘     │
+                                    ├──────────────────┐
+                                    ▼                  ▼
+                        ┌───────────────────┐   ┌─────────────┐
+                        │  TB6612FNG   VM   │   │  ESP32-C3   │
+                        │              VCC ◀├───┤ 3V3     5V  │
+                        │              GND  │   │             │
+                        │                   │   │             │
+                        │  PWMA ◀───────────┼───┤ GPIO 3      │
+                        │  AIN1 ◀───────────┼───┤ GPIO 5      │
+                        │  AIN2 ◀───────────┼───┤ GPIO 6      │
+                        │  PWMB ◀───────────┼───┤ GPIO 0      │
+                        │  BIN1 ◀───────────┼───┤ GPIO 7      │
+                        │  BIN2 ◀───────────┼───┤ GPIO 10     │
+                        │  STBY ◀───────────┼───┤ GPIO 1      │
+                        │                   │   │             │
+                        │  AO1 AO2 BO1 BO2  │   │ GPIO 8 ─────┼──▶ OLED SDA
+                        └───┬───┬───┬───┬───┘   │ GPIO 9 ─────┼──▶ OLED SCL
+                            │   │   │   │       │             │
+                          ┌─┴───┴─┐┌┴───┴─┐     │ GPIO 4 ◀────┼─── TTP223 SIG
+                          │ N20 L ││ N20 R│     └─────────────┘
+                          └───────┘└──────┘
+                                              OLED + TTP223 VCC ── 3V3
+                                              everything GND ───── common
 ```
-
-### Full Component Wiring Table
-
-```text
-┌──────────────────────┐        I2C Bus        ┌────────────────────────┐
-│  OLED Display 128x64 │ <====================> │ ESP32-C3 Microcontroller│
-└──────────────────────┘  SDA: GPIO 8, SCL: 9  └────────────────────────┘
-                                                           │
-                                                           │ PWM / Motor Direction
-                                                           ▼
-┌──────────────────────┐    Dual DC Motors     ┌────────────────────────┐
-│   Left & Right Wheels│ <==================== │ TB6612FNG Motor Driver │
-└──────────────────────┘                       └────────────────────────┘
-                                                           ▲
-                                                           │ Capacitive Signal
-                                                       GPIO 4
-                                                           │
-                                               ┌────────────────────────┐
-                                               │ TTP223 Touch Sensor    │
-                                               └────────────────────────┘
-```
-
----
-
-## 🏗️ System Architecture
 
 ```mermaid
-graph TD
-    A[User Touch Input / Web UI] -->|Commands & Gestures| B[AppController State Engine]
-    B -->|State & Emotions| C[FaceRenderer OLED Graphics]
-    B -->|Drive Signals| D[MotorController TB6612FNG]
-    B -->|Data Sync| E[TaskManager & Flash NVS]
-    F[Open-Meteo API / NTP Server] -->|Wi-Fi Data| B
-    C -->|Draw Frames| G[128x64 OLED Display]
+graph LR
+    BAT["LiPo 3.7V<br/>+ TP4056"] -->|VM, motor rail| DRV["TB6612FNG"]
+    BAT -->|regulated| MCU["ESP32-C3"]
+    MCU -->|3V3 logic| DRV
+    MCU -->|"I2C · GPIO 8/9"| OLED["128x64 OLED"]
+    TOUCH["TTP223"] -->|"GPIO 4"| MCU
+    DRV --> ML["Left N20"]
+    DRV --> MR["Right N20"]
+    MCU -.->|"Wi-Fi · web UI"| PHONE["Your phone"]
 ```
 
----
+### Three things that will bite you
 
-## 🛠️ Hardware Requirements & BOM
+**Power the motors from the battery, not the 3V3 pin.** `VM` on the TB6612 goes
+to the LiPo rail; `VCC` is the logic supply and goes to 3V3. Every ground must be
+common. Two N20s stalling will pull well over an amp, which no dev-board
+regulator will survive.
 
-| Component | Quantity | Specification / Details | Pin Connection |
-| :--- | :---: | :--- | :--- |
-| **ESP32-C3 DevKitM-1** | 1 | 320KB RAM, 4MB Flash, Wi-Fi & BLE | Core Board |
-| **OLED Display (I2C)** | 1 | 128x64 SSD1305 / SSD1306 | SDA: `GPIO 8`, SCL: `GPIO 9` |
-| **Touch Sensor Module** | 1 | TTP223 Capacitive Touch | `GPIO 4` |
-| **Motor Driver Module** | 1 | TB6612FNG Dual H-Bridge (see note) | PWM L: `3`, IN1 L: `5`, IN2 L: `6`<br>PWM R: `0`, IN1 R: `7`, IN2 R: `10`<br>STBY: `GPIO 1` |
-| **DC Gear Motors** | 2 | N20 Micro Gear Motors (6V) | Motor Outputs |
-| **LiPo Battery & Charger**| 1 | 3.7V 1000mAh Battery + TP4056 | Power Bus |
+**Feeding the ESP32 is the part worth thinking about.** A 3.7 V cell is below
+what most 5 V pins want and above what's safe to inject straight into 3V3 at full
+charge (4.2 V). A small boost converter to 5 V is the boring, correct answer.
+Going LiPo-direct into 3V3 works right up until it doesn't.
 
-> **Motor driver note.** The firmware drives a **separate PWM pin plus two
-> direction pins per channel** (`PWMA/AIN1/AIN2` + `STBY`), which is the
-> **TB6612FNG** interface. A **DRV8833 will not work with this wiring**: it has
-> no `PWMA`/`PWMB` pins at all — PWM is applied directly to `AIN1`/`AIN2`, and
-> its enable pin is `nSLEEP`, not `STBY`. If you only have a DRV8833, tie
-> `GPIO 1` to `nSLEEP` and rework `MotorController::setMotor()` to PWM the
-> direction pins instead; otherwise the motors will only ever run full speed.
-
-> **Boot note (ESP32-C3 strapping pins).** I²C uses `GPIO 8` and `GPIO 9`, both
-> of which are strapping pins on the C3. This is the Arduino default and is
-> normally fine, but if your OLED module has no I²C pull-ups — or a long cable
-> drags `GPIO 9` low at reset — the chip boots into serial-download mode and
-> appears "dead". If the bot sometimes fails to start, check for 4.7k pull-ups
-> to 3V3 on SDA/SCL and keep the I²C leads short.
-
-> **Battery gauge.** `Config::BATTERY_ADC_PIN` ships as `255` (disabled) because
-> no divider is wired by default. Until you set a real ADC pin, the status API
-> reports `batteryMeasured: false` rather than passing a constant off as a
-> reading.
+**GPIO 8 and 9 are strapping pins.** That's the Arduino I²C default and normally
+fine, but on a SuperMini board GPIO 8 usually also drives the onboard LED and
+GPIO 9 is the BOOT button. If the bot sometimes refuses to start, this is the
+first place to look: check for pull-ups on SDA/SCL and keep the leads short.
 
 ---
 
-## 🖨️ 3D Printable Enclosure (CAD Models)
+## Photos
 
-Delta-Bot includes open-source 3D printable STL files located in [hardware/3d_models](hardware/3d_models):
+I haven't shot the finished build yet, so rather than leave broken image links
+in the README, here's the shot list. Drop each file into `docs/images/` with the
+name given, then uncomment the matching line in the HTML block below and the
+gallery appears.
 
-- 📦 [`delta_bot_chassis.stl`](hardware/3d_models/delta_bot_chassis.stl): Main lower body chassis
-- 🖥️ [`delta_bot_head_cover.stl`](hardware/3d_models/delta_bot_head_cover.stl): OLED & Touch panel head cover
-- 🛞 [`delta_bot_wheel_left.stl`](hardware/3d_models/delta_bot_wheel_left.stl) & [`delta_bot_wheel_right.stl`](hardware/3d_models/delta_bot_wheel_right.stl): Drive wheels
+| File to add | Shot | Why it matters |
+| :--- | :--- | :--- |
+| `build-wiring.jpg` | Everything laid out flat and connected, before it goes in the shell | The single most useful photo in any hardware repo — people copy wiring from photos, not diagrams |
+| `face-closeup.jpg` | The OLED filling the frame, shot slightly off-axis so the glass doesn't blow out | This is the project. Lead with it once you have it |
+| `assembled-side.jpg` | Side profile on a desk, something familiar next to it for scale | Answers "how big is it" instantly |
+| `web-ui.png` | Phone screenshot of the dashboard | Easiest one to capture — no staging needed |
 
-> For 3D printing settings, infill recommendations, and assembly guides, see [hardware/3d_models/README.md](hardware/3d_models/README.md).
+<!-- Uncomment each line as you add the file:
+![Bench wiring](docs/images/build-wiring.jpg)
+![Face close-up](docs/images/face-closeup.jpg)
+![Assembled, side view](docs/images/assembled-side.jpg)
+![Web dashboard](docs/images/web-ui.png)
+-->
 
 ---
 
-## 🚀 Getting Started
+## Printed parts
 
-### 1. Prerequisites
-- Install [VS Code](https://code.visualstudio.com/)
-- Install the [PlatformIO IDE Extension](https://platformio.org/platformio-ide)
+Four parts in [`hardware/3d_models/`](hardware/3d_models): body, lid, a motor
+bracket (print two), and a clamp that holds the touch sensor against the lid.
+PLA, 0.2 mm, 20% infill, supports only on the body.
 
-### 2. Clone Repository
+Print settings, tolerances and the assembly order are in
+[`hardware/3d_models/README.md`](hardware/3d_models/README.md). The short version:
+mount the motors before anything else goes in, or you won't reach the screws.
+
+---
+
+## Getting it running
+
+You'll need [VS Code](https://code.visualstudio.com/) and the
+[PlatformIO extension](https://platformio.org/platformio-ide).
+
 ```bash
 git clone https://github.com/MehediEEE45/Delta-Bot.git
 cd Delta-Bot
-```
-
-### 3. Configure Wi-Fi
-Copy `include/Secrets.h.example` to `include/Secrets.h`:
-```bash
 cp include/Secrets.h.example include/Secrets.h
 ```
-Edit `include/Secrets.h` with your credentials:
-```cpp
-#pragma once
 
+Then fill in `include/Secrets.h`. It's gitignored, so nothing here gets committed:
+
+```cpp
 namespace Config {
-constexpr char WIFI_SSID[] = "YOUR_WIFI_SSID";
+constexpr char WIFI_SSID[]     = "YOUR_WIFI_SSID";
 constexpr char WIFI_PASSWORD[] = "YOUR_WIFI_PASSWORD";
 
-// Password for the fallback AP Delta-Bot starts when it cannot join a network.
-// Must be at least 8 characters or the AP falls back to open.
+// Password for the fallback access point the bot starts when it can't
+// join your network. Needs 8+ characters or it falls back to an open AP.
 constexpr char FALLBACK_AP_PASSWORD[] = "CHANGE_ME_AP";
 
-// HTTP basic-auth for the web dashboard. Every state-changing endpoint is
-// behind this. Leave WEB_PASSWORD empty to disable auth (not recommended --
-// anyone on your network could then drive the motors and rewrite your Wi-Fi
-// credentials).
-constexpr char WEB_USER[] = "delta";
+// Login for the web dashboard. Every endpoint that changes something is
+// behind this. Leave the password empty to turn auth off — but then anyone
+// on your network can drive the motors and rewrite your Wi-Fi settings.
+constexpr char WEB_USER[]     = "delta";
 constexpr char WEB_PASSWORD[] = "CHANGE_ME_WEB";
 }
 ```
 
-`include/Secrets.h` is gitignored, so none of these values are committed.
+Plug the board in, hit Upload, then open the serial monitor at 115200 to find
+the IP address. Open that in a browser and you're in.
 
-### 4. Build and Upload
-1. Connect your ESP32-C3 board via USB.
-2. Open PlatformIO in VS Code.
-3. Click **Build** (`✓`) or **Upload** (`→`).
-4. Open **Serial Monitor** at `115200` baud rate to check the IP address.
+If it can't reach your network it starts its own, called **Delta**. Join that and
+go to `192.168.4.1` to set the real credentials.
 
 ---
 
-## 🌐 Web Control Dashboard
+## The web dashboard
 
-Access the built-in control dashboard from any smartphone or browser on your local network (or fallback AP `Delta` at `192.168.4.1`):
+Served straight off the board — one page, no build step, no dependencies.
 
-- 🏎️ **Drive D-Pad**: Touch controller for real-time RC driving.
-- 🎙️ **Voice Control**: Web Microphone speech recognition.
-- 🐶 **Virtual Pet**: Feed pizza and pet Delta-Bot's head.
-- 🎨 **Live Canvas**: Draw pixels on your phone and render on OLED.
-- 📋 **Task & Notice Manager**: Send announcements & manage To-Do lists.
+- Drive pad with a speed slider
+- Every emotion and mode as a button
+- Task list with add, tick and delete
+- Pomodoro, reminders, notices, the 8-ball, the pet
+- Pixel canvas that draws on the OLED as you tap
+- Wi-Fi setup
 
----
-
-## 🤝 Contributing
-
-Contributions, feature requests, and bug reports are welcome! Feel free to check out the [Issues](https://github.com/MehediEEE45/Delta-Bot/issues) page.
+Status polls every two seconds. If a request fails, the page tells you what
+happened instead of silently doing nothing.
 
 ---
 
-## 📄 License
+## How the code is laid out
 
-Distributed under the **MIT License**. See `LICENSE` for details.
+```
+src/
+  main.cpp           Wi-Fi bring-up, the loop
+  AppController      Mode and emotion state machine
+  FaceAnimator       Expression morphing, blinking, gaze — no display calls
+  FaceRenderer       Everything that draws to the OLED
+  TaskManager        Tasks, pet, pomodoro, reminders, canvas
+  MotorController    TB6612 driver, watchdog, non-blocking wiggle
+  WebController      HTTP server and the dashboard page
+  Weather            Open-Meteo fetch, on its own FreeRTOS task
+```
+
+Two decisions worth explaining.
+
+**The weather fetch runs on its own task.** A TLS handshake on a C3 takes a few
+seconds, and doing that inside `loop()` froze the display and the web server
+solid. The C3 is single-core, so the worker and the main loop take turns rather
+than running in parallel, but the face keeps animating through it.
+
+**`FaceAnimator` never touches the display.** It works out where everything
+should be and hands over a struct; `FaceRenderer` draws it. That split means the
+animation maths can be tested on a laptop with fake timestamps, and it keeps the
+drawing code from accumulating state.
+
+There's a preview script at [`tools/preview_face.py`](tools/preview_face.py) that
+renders the expressions as ASCII, so you can check the geometry without flashing
+anything. It caught three real layout bugs before they ever hit hardware.
+
+---
+
+## Rough edges
+
+Things I know about, listed here rather than discovered by you:
+
+- Tasks are capped at five. It's a fixed array.
+- No OTA yet, so updates mean plugging in a cable. The board is at 80% of its
+  flash slot, which is the thing standing in the way.
+- The battery gauge is wired in software but there's no divider on the board, so
+  the API honestly reports `batteryMeasured: false` instead of inventing a number.
+- No tests and no CI. Next on the list — the touch gesture logic and the Pomodoro
+  maths are both pure functions and should be tested on a laptop.
+- The face was tuned against an ASCII preview, not a real panel. Some of the
+  geometry will want nudging once I've stared at it for a week.
+
+---
+
+## License
+
+MIT. Do what you like with it.
