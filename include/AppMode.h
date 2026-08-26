@@ -17,6 +17,7 @@ enum class AppMode {
     Decision,
     Night,
     RCCar,
+    Face,
     Count // sentinel; keep last
 };
 

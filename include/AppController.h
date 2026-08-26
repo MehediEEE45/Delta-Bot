@@ -30,6 +30,9 @@ public:
     const char* modeName() const;
     const char* emotionName() const;
     bool nightActive() const;
+    // Point the eyes deliberately, range [-1,1] per axis. Used by RC driving.
+    void setGaze(float x, float y);
+    void clearGaze();
 
     TaskManager& taskManager();
 

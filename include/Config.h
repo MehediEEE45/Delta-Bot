@@ -4,6 +4,11 @@
 #include "Secrets.h"
 
 namespace Config {
+// 400kHz costs ~23ms for a full 1KB frame, which caps the face near 20fps.
+// Most SSD130x modules run happily at 1000000; raise this and re-test if the
+// animation looks choppy. Depends on your pull-ups and lead length.
+constexpr uint32_t I2C_CLOCK_HZ = 400000;
+
 constexpr uint8_t I2C_SDA_PIN = 8;
 constexpr uint8_t I2C_SCL_PIN = 9;
 constexpr uint8_t TOUCH_PIN = 4;
@@ -71,6 +76,29 @@ constexpr size_t CANVAS_BUFFER_BYTES = (CANVAS_WIDTH / 8) * CANVAS_HEIGHT;
 // anything faster than this starves the web server and touch sampling.
 constexpr unsigned long MUSIC_FRAME_MS = 50;
 constexpr unsigned long CLOCK_FRAME_MS = 200;
+// Face modes animate; info screens do not need the bandwidth.
+constexpr unsigned long FACE_FRAME_MS = 45;
+
+// ---- Face animation -------------------------------------------------------
+// Emotion changes ease over this long instead of popping.
+constexpr unsigned long FACE_MORPH_MS = 220;
+// One blink: lids close and reopen across this window.
+constexpr unsigned long BLINK_MS = 130;
+constexpr unsigned long BLINK_MIN_GAP_MS = 2200;
+constexpr unsigned long BLINK_MAX_GAP_MS = 6000;
+constexpr uint8_t BLINK_DOUBLE_PERCENT = 22;   // chance of a second blink
+// Idle drift periods, deliberately non-commensurate so the loop never reads.
+constexpr float IDLE_DRIFT_X_MS = 2900.0f;
+constexpr float IDLE_DRIFT_Y_MS = 1200.0f;
+constexpr float IDLE_DRIFT_PX = 2.0f;
+// Saccades: small eye jumps that hold, the way real eyes move.
+constexpr unsigned long SACCADE_MIN_GAP_MS = 1500;
+constexpr unsigned long SACCADE_MAX_GAP_MS = 4200;
+constexpr unsigned long SACCADE_TRAVEL_MS = 90;
+// OLED burn-in protection: very slow whole-face drift on long periods.
+constexpr float BURNIN_X_MS = 47000.0f;
+constexpr float BURNIN_Y_MS = 61000.0f;
+constexpr float BURNIN_PX = 2.0f;
 
 // Motors coast to a stop if the browser stops sending drive commands.
 constexpr unsigned long MOTOR_WATCHDOG_MS = 1000;

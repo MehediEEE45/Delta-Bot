@@ -16,7 +16,7 @@ FaceRenderer::FaceRenderer()
 
 bool FaceRenderer::begin() {
     Wire.begin(Config::I2C_SDA_PIN, Config::I2C_SCL_PIN);
-    Wire.setClock(400000);
+    Wire.setClock(Config::I2C_CLOCK_HZ);
     ready_ = display_.begin(Config::OLED_ADDRESS);
     if (!ready_) {
         Serial.print("OLED init FAILED at address 0x");
@@ -77,6 +77,11 @@ void FaceRenderer::render(AppMode mode, Emotion emotion, const WeatherData& weat
         case AppMode::Night:
             drawNightScreen(now);
             break;
+        case AppMode::Face:
+            animator_.update(emotion, now);
+            drawAnimatedFace(animator_.frame());
+            if (animator_.frame().showZzz) drawZzz(96, 24, now);
+            break;
         case AppMode::RCCar:
             drawRCCarFace(emotion, now);
             break;
@@ -85,7 +90,8 @@ void FaceRenderer::render(AppMode mode, Emotion emotion, const WeatherData& weat
             if (emotion == Emotion::Happy || emotion == Emotion::Idle) {
                 drawMusicFace(now);
             } else {
-                drawSimpleRobotFace(emotion, now);
+                animator_.update(emotion, now);
+                drawAnimatedFace(animator_.frame());
             }
             break;
     }
@@ -194,12 +200,12 @@ void FaceRenderer::drawPomodoroScreen(TaskManager* taskMgr, unsigned long now) {
     const int cx = 64;
     const int cy = 38;
     const int r = 21;
-    drawArc(cx, cy, r, 0.0f, 360.0f, true);
+    drawArc(cx, cy, r, r, 0.0f, 360.0f, true);
 
     const float sweep = 360.0f * taskMgr->pomodoroProgress(now);
     if (sweep > 0.0f) {
-        drawArc(cx, cy, r, -90.0f, sweep);
-        drawArc(cx, cy, r - 1, -90.0f, sweep);
+        drawArc(cx, cy, r, r, -90.0f, sweep);
+        drawArc(cx, cy, r - 1, r - 1, -90.0f, sweep);
     }
 
     // A paused timer blinks its head so a stalled ring is not mistaken for a
@@ -308,38 +314,182 @@ void FaceRenderer::drawNightScreen(unsigned long now) {
 }
 
 void FaceRenderer::drawRCCarFace(Emotion emotion, unsigned long now) {
-    // TODO(phase-2): steering eyes. `emotion` is set by motorCommand() (Cool on
-    // a turn, Excited forward, Sad reverse) but nothing here reads it yet.
-    (void)emotion;
-    const int speedTrail = static_cast<int>((now / 80) % 4);
-    display_.fillRoundRect(20 - speedTrail, 18, 30, 20, 6, PixelOn);
-    display_.fillRoundRect(78 + speedTrail, 18, 30, 20, 6, PixelOn);
+    animator_.update(emotion, now);
+    drawAnimatedFace(animator_.frame());
 
-    display_.drawFastHLine(50, 28, 28, PixelOn);
-
-    display_.setCursor(38, 48);
-    display_.print("RC DRIVING");
+    // Speed streaks down both edges, scrolling to suggest travel.
+    const int phase = static_cast<int>((now / 60) % 12);
+    for (int i = 0; i < 3; ++i) {
+        const int y = 14 + i * 16 + phase / 3;
+        const int len = 6 + ((phase + i * 4) % 6);
+        display_.drawFastHLine(0, y, len, PixelOn);
+        display_.drawFastHLine(128 - len, y + 6, len, PixelOn);
+    }
 }
 
-void FaceRenderer::drawFace(Emotion emotion, unsigned long now) {
-    drawEyes(emotion, now);
-    drawMouth(emotion, now);
+
+
+
+// ---------------------------------------------------------------------------
+// Animated face. Geometry arrives fully resolved in a FaceFrame; nothing here
+// keeps animation state of its own.
+// ---------------------------------------------------------------------------
+
+void FaceRenderer::drawEye(const FaceFrame& f, int cx, int cy, bool leftEye) {
+    const int w = static_cast<int>(lroundf(f.p.eyeW));
+    const int full = static_cast<int>(lroundf(f.p.eyeH));
+    // Blink squashes toward the lower lid rather than toward the eye centre,
+    // which is how a real lid closes.
+    const int h = max(2, static_cast<int>(lroundf(f.p.eyeH * f.openness)));
+    const int bottom = cy + full / 2;
+    const int top = bottom - h;
+    const int r = min(static_cast<int>(lroundf(f.p.eyeRadius)), min(w, h) / 2);
+
+    switch (f.shape) {
+        case EyeShape::HappyArc: {
+            // A wide, shallow upward arc: the classic happy squint. An elliptical
+            // arc keeps it from becoming a tall arch that crowds the brow.
+            const int rx = w / 2;
+            const int ry = max(4, static_cast<int>(h * 0.62f));
+            for (int k = 0; k < 3; ++k) {
+                drawArc(cx, bottom - 1, rx - k, ry - k, 180.0f, 180.0f);
+            }
+            break;
+        }
+        case EyeShape::Heart: {
+            const int hr = max(3, w / 4);
+            display_.fillCircle(cx - hr + 1, top + hr, hr, PixelOn);
+            display_.fillCircle(cx + hr - 1, top + hr, hr, PixelOn);
+            display_.fillTriangle(cx - 2 * hr + 1, top + hr + 1,
+                                  cx + 2 * hr - 1, top + hr + 1,
+                                  cx, bottom, PixelOn);
+            break;
+        }
+        case EyeShape::Star: {
+            const int a = w / 2;
+            const int b = h / 2;
+            display_.fillTriangle(cx, cy - b, cx - a / 2, cy, cx + a / 2, cy, PixelOn);
+            display_.fillTriangle(cx, cy + b, cx - a / 2, cy, cx + a / 2, cy, PixelOn);
+            display_.fillTriangle(cx - a, cy, cx, cy - b / 2, cx, cy + b / 2, PixelOn);
+            display_.fillTriangle(cx + a, cy, cx, cy - b / 2, cx, cy + b / 2, PixelOn);
+            break;
+        }
+        case EyeShape::Hollow: {
+            display_.fillRoundRect(cx - w / 2, top, w, h, r, PixelOn);
+            const int iw = max(2, w - 8);
+            const int ih = max(2, h - 8);
+            display_.fillRoundRect(cx - iw / 2, top + (h - ih) / 2, iw, ih,
+                                   max(1, r - 4), PixelOff);
+            if (f.showPupil && f.openness > 0.6f) {
+                display_.fillCircle(cx + static_cast<int>(f.gazeX * 3),
+                                    cy + static_cast<int>(f.gazeY * 2), 2, PixelOn);
+            }
+            break;
+        }
+        case EyeShape::Line:
+            display_.fillRect(cx - w / 2, cy, w, max(2, h), PixelOn);
+            break;
+        case EyeShape::Shades:
+            break; // drawn once for both eyes in drawAnimatedFace
+        case EyeShape::Block:
+        default: {
+            display_.fillRoundRect(cx - w / 2, top, w, h, r, PixelOn);
+            // The pupil is a hole punched out of the lit eye: on a 1-bit panel
+            // that reads as a highlight and gives the face a direction of gaze.
+            if (f.showPupil && f.openness > 0.55f) {
+                const int pw = max(4, w / 3);
+                const int ph = max(4, h / 3);
+                const int px = cx + static_cast<int>(lroundf(f.gazeX * (w / 2.0f - pw / 2.0f - 3)));
+                const int py = cy + static_cast<int>(lroundf(f.gazeY * (h / 2.0f - ph / 2.0f - 3)));
+                display_.fillRoundRect(px - pw / 2, py - ph / 2, pw, ph, 2, PixelOff);
+            }
+            break;
+        }
+    }
+    (void)leftEye;
 }
 
-void FaceRenderer::drawEyes(Emotion emotion, unsigned long now) {
-    const bool blink = (now % 5000) > 4750 && emotion != Emotion::Sleep;
-    if (emotion == Emotion::Sleep || blink) {
-        display_.drawLine(20, 25, 42, 25, PixelOn);
-        display_.drawLine(86, 25, 108, 25, PixelOn);
+void FaceRenderer::drawBrow(const FaceFrame& f, int cx, int cy, bool leftEye) {
+    if (f.p.browLift <= 0.5f) return;
+    const int w = static_cast<int>(lroundf(f.p.eyeW));
+    const int tilt = static_cast<int>(lroundf(f.p.browAngle));
+    const int eyeTop = cy - static_cast<int>(lroundf(f.p.eyeH / 2.0f));
+    // Keep the whole stroke on the panel and clear of the eye it sits above,
+    // whatever the expression asks for.
+    int baseY = eyeTop - static_cast<int>(lroundf(f.p.browLift));
+    baseY = max(baseY, 1 + abs(tilt));
+    baseY = min(baseY, eyeTop - 2 - abs(tilt));
+    if (baseY < 1) return;
+
+    // browAngle raises the inner end for sad, drops it for angry.
+    const int innerX = leftEye ? cx + w / 2 : cx - w / 2;
+    const int outerX = leftEye ? cx - w / 2 : cx + w / 2;
+    const int innerY = baseY - tilt;
+    const int outerY = baseY + tilt;
+
+    display_.drawLine(innerX, innerY, outerX, outerY, PixelOn);
+    display_.drawLine(innerX, innerY + 1, outerX, outerY + 1, PixelOn);
+}
+
+void FaceRenderer::drawAnimMouth(const FaceFrame& f, int cx, int baseY) {
+    const int w = static_cast<int>(lroundf(f.p.mouthW));
+    if (w < 4) return;
+
+    if (f.p.mouthOpen > 1.0f) {
+        const int oh = static_cast<int>(lroundf(f.p.mouthOpen));
+        display_.fillRoundRect(cx - w / 2, baseY - oh / 2, w, oh, min(w, oh) / 2, PixelOn);
         return;
     }
-    display_.fillRoundRect(18, 15, 27, 21, 5, PixelOn);
-    display_.fillRoundRect(84, 15, 27, 21, 5, PixelOn);
+
+    // Parabola through the mouth width: positive curve drops the centre below
+    // the corners, which reads as a smile.
+    const float curve = f.p.mouthCurve;
+    for (int x = -w / 2; x <= w / 2; ++x) {
+        const float n = (2.0f * x) / w;
+        const int y = baseY + static_cast<int>(lroundf(curve * (1.0f - n * n)));
+        display_.drawPixel(cx + x, y, PixelOn);
+        display_.drawPixel(cx + x, y + 1, PixelOn);
+    }
 }
 
-void FaceRenderer::drawMouth(Emotion emotion, unsigned long) {
-    if (emotion == Emotion::Sleep) return;
-    display_.drawLine(52, 47, 76, 47, PixelOn);
+void FaceRenderer::drawZzz(int x, int y, unsigned long now) {
+    for (int i = 0; i < 3; ++i) {
+        const unsigned long phase = (now / 18 + i * 500) % 1500;
+        const int rise = static_cast<int>(phase / 100);
+        const int zx = x + i * 3 + rise / 3;
+        const int zy = y - rise;
+        if (zy < 2) continue;
+        const int sz = 2 + i;
+        display_.drawFastHLine(zx, zy, sz, PixelOn);
+        display_.drawLine(zx + sz - 1, zy, zx, zy + sz, PixelOn);
+        display_.drawFastHLine(zx, zy + sz, sz, PixelOn);
+    }
+}
+
+void FaceRenderer::drawAnimatedFace(const FaceFrame& f) {
+    const int ox = static_cast<int>(lroundf(f.offsetX));
+    const int oy = static_cast<int>(lroundf(f.offsetY));
+    const int cy = static_cast<int>(lroundf(f.p.eyeY)) + oy;
+    const int half = static_cast<int>(lroundf(f.p.eyeGap / 2.0f));
+    const int leftX = 64 - half + ox;
+    const int rightX = 64 + half + ox;
+
+    if (f.shape == EyeShape::Shades) {
+        // One visor spanning both eyes, with a bridge across the middle.
+        const int h = max(3, static_cast<int>(lroundf(f.p.eyeH * f.openness)));
+        const int top = cy + static_cast<int>(lroundf(f.p.eyeH / 2.0f)) - h;
+        const int w = static_cast<int>(lroundf(f.p.eyeW));
+        display_.fillRoundRect(leftX - w / 2, top, w, h, 3, PixelOn);
+        display_.fillRoundRect(rightX - w / 2, top, w, h, 3, PixelOn);
+        display_.fillRect(leftX + w / 2, top + h / 3, rightX - leftX - w, 3, PixelOn);
+    } else {
+        drawEye(f, leftX, cy, true);
+        drawEye(f, rightX, cy, false);
+        drawBrow(f, leftX, cy, true);
+        drawBrow(f, rightX, cy, false);
+    }
+
+    drawAnimMouth(f, 64 + ox, static_cast<int>(lroundf(f.p.mouthY)) + oy);
 }
 
 void FaceRenderer::drawStatus(bool wifiOnline) {
@@ -455,16 +605,17 @@ void FaceRenderer::drawWeatherScreen(const WeatherData& weather, bool wifiOnline
     display_.print(weather.valid ? weatherCodeText(weather.weatherCode) : "No data");
 }
 
-void FaceRenderer::drawArc(int cx, int cy, int radius, float startDeg, float sweepDeg, bool dotted) {
-    if (radius <= 0 || sweepDeg == 0.0f) return;
-    // ~3 degrees per step keeps the spacing under 1.2px at r=22, so a solid
-    // arc has no gaps; the dotted track skips every other step.
-    const int steps = max(2, static_cast<int>(fabs(sweepDeg) / 3.0f));
+void FaceRenderer::drawArc(int cx, int cy, int rx, int ry, float startDeg, float sweepDeg, bool dotted) {
+    if (rx <= 0 || ry <= 0 || sweepDeg == 0.0f) return;
+    // Step small enough that neighbouring points stay under ~1.2px apart at the
+    // largest radius we use, so a solid arc has no gaps; the dotted progress
+    // track skips every other step.
+    const int steps = max(2, static_cast<int>(fabs(sweepDeg) / 3.0f) * max(1, max(rx, ry) / 22));
     for (int i = 0; i <= steps; ++i) {
         if (dotted && (i % 2)) continue;
         const float a = (startDeg + sweepDeg * i / steps) * DEG_TO_RAD;
-        display_.drawPixel(cx + static_cast<int>(lroundf(cosf(a) * radius)),
-                           cy + static_cast<int>(lroundf(sinf(a) * radius)), PixelOn);
+        display_.drawPixel(cx + static_cast<int>(lroundf(cosf(a) * rx)),
+                           cy + static_cast<int>(lroundf(sinf(a) * ry)), PixelOn);
     }
 }
 
@@ -527,15 +678,6 @@ void FaceRenderer::drawWeatherIcon(int weatherCode, int cx, int cy, unsigned lon
     display_.fillTriangle(cx - 1, cy + 16, cx + 5, cy + 8, cx, cy + 9, PixelOn);
 }
 
-void FaceRenderer::drawSimpleRobotFace(Emotion emotion, unsigned long now) {
-    // TODO(phase-2): this is why all eight emotions render identically. The
-    // expression table replaces this function wholesale.
-    (void)emotion;
-    const int bob = static_cast<int>((now / 500) % 2);
-    const int eyeY = 20 + bob;
-    display_.fillRoundRect(18, eyeY, 27, 21, 5, PixelOn);
-    display_.fillRoundRect(84, eyeY, 27, 21, 5, PixelOn);
-}
 
 void FaceRenderer::drawTimeDateScreen(unsigned long) {
     char timeText[13] = "--:--:--";

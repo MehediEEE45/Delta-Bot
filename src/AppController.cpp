@@ -176,6 +176,8 @@ void AppController::setEmotion(Emotion emotion, unsigned long durationMs, unsign
 AppMode AppController::mode() const { return mode_; }
 Emotion AppController::emotion() const { return emotion_; }
 bool AppController::nightActive() const { return nightActive_; }
+void AppController::setGaze(float x, float y) { renderer_.animator().lookAt(x, y); }
+void AppController::clearGaze() { renderer_.animator().releaseLook(); }
 const WeatherData& AppController::weatherData() const { return weather_.data(); }
 void AppController::requestWeatherRefresh() { weather_.requestRefresh(); }
 void AppController::setDefaultMode(AppMode mode) { settings_.setDefaultMode(mode); }

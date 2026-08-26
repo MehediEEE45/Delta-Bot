@@ -4,6 +4,7 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1305.h>
 #include "AppMode.h"
+#include "FaceAnimator.h"
 #include "Weather.h"
 
 class TaskManager;
@@ -18,15 +19,19 @@ public:
     bool begin();
     bool ready() const;
     void render(AppMode mode, Emotion emotion, const WeatherData& weather, bool wifiOnline, unsigned long now, TaskManager* taskMgr = nullptr);
+    FaceAnimator& animator() { return animator_; }
 
 private:
     Adafruit_SSD1305 display_;
+    FaceAnimator animator_;
     bool ready_ = false;
-    void drawFace(Emotion emotion, unsigned long now);
-    void drawEyes(Emotion emotion, unsigned long now);
-    void drawMouth(Emotion emotion, unsigned long now);
+    // --- animated face ---
+    void drawAnimatedFace(const FaceFrame& f);
+    void drawEye(const FaceFrame& f, int cx, int cy, bool leftEye);
+    void drawBrow(const FaceFrame& f, int cx, int cy, bool leftEye);
+    void drawAnimMouth(const FaceFrame& f, int cx, int baseY);
+    void drawZzz(int x, int y, unsigned long now);
     void drawMusicFace(unsigned long now);
-    void drawSimpleRobotFace(Emotion emotion, unsigned long now);
     void drawMusicNote(int x, int y, bool doubleNote);
     void drawSparkle(int x, int y, int size);
     void drawMusicEqualizer(float songTime, float beatPhase);
@@ -41,7 +46,7 @@ private:
     void drawCloud(int cx, int cy);
     // Plots an arc clockwise from startDeg (0 = 3 o'clock) for sweepDeg.
     // `dotted` skips every other step for the unfilled progress track.
-    void drawArc(int cx, int cy, int radius, float startDeg, float sweepDeg, bool dotted = false);
+    void drawArc(int cx, int cy, int rx, int ry, float startDeg, float sweepDeg, bool dotted = false);
     void drawStatus(bool wifiOnline);
 
     // New Screens

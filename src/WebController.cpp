@@ -35,6 +35,7 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
 <button onclick="send('tasks')">Tasks</button><button onclick="send('notice')">Notice</button><button onclick="send('pomodoro')">Pomodoro</button>
 <button onclick="send('quotes')">Quotes</button><button onclick="send('pet')">Pet Mode</button><button onclick="send('decision')">8-Ball</button>
 <button onclick="send('reminder')">Reminder</button><button onclick="send('canvas')">Canvas</button><button onclick="send('night')">Night</button>
+<button onclick="send('face')">Face</button>
 </div>
 <div style="margin-top:8px">Boot into: <button onclick="setDefault()">Save current mode as default</button> <span id="defMode"></span></div></div>
 
@@ -485,14 +486,23 @@ void WebController::motorCommand() {
 
     const unsigned long now = millis();
     if (motorCommand == MotorCommand::Stop) {
+        app_.clearGaze();
         sendOk();
         return;
     }
 
     app_.setMode(AppMode::RCCar);
-    if (motorCommand == MotorCommand::Forward) app_.setEmotion(Emotion::Excited, 0, now);
-    else if (motorCommand == MotorCommand::Backward) app_.setEmotion(Emotion::Sad, 0, now);
-    else app_.setEmotion(Emotion::Cool, 0, now);
+    // Lean the gaze into the direction of travel: the "steering eyes".
+    if (motorCommand == MotorCommand::Forward) {
+        app_.setEmotion(Emotion::Excited, 0, now);
+        app_.setGaze(0.0f, -0.6f);
+    } else if (motorCommand == MotorCommand::Backward) {
+        app_.setEmotion(Emotion::Sad, 0, now);
+        app_.setGaze(0.0f, 0.7f);
+    } else {
+        app_.setEmotion(Emotion::Cool, 0, now);
+        app_.setGaze(motorCommand == MotorCommand::Left ? -1.0f : 1.0f, 0.0f);
+    }
 
     sendOk();
 }

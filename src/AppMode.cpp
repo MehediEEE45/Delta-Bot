@@ -16,6 +16,7 @@ const char* appModeName(AppMode mode) {
         case AppMode::Decision:  return "decision";
         case AppMode::Night:     return "night";
         case AppMode::RCCar:     return "rc_car";
+        case AppMode::Face:      return "face";
         default:                 return "time";
     }
 }
