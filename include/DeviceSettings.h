@@ -9,7 +9,8 @@ public:
     void begin();
     AppMode defaultMode() const;
     uint8_t batteryPercent() const;
-    void updateBattery();
+    bool batteryMeasured() const;
+    void updateBattery(unsigned long now);
     void setDefaultMode(AppMode mode);
     const char* wifiSsid() const;
     const char* wifiPassword() const;
@@ -18,7 +19,9 @@ public:
 private:
     Preferences preferences_;
     AppMode defaultMode_ = AppMode::TimeDate;
-    uint8_t batteryPercent_ = 95;
+    uint8_t batteryPercent_ = 100;
+    unsigned long lastBatterySampleAt_ = 0;
+    bool batterySampled_ = false;
     char wifiSsid_[65] = {};
     char wifiPassword_[65] = {};
 };

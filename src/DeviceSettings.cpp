@@ -4,9 +4,10 @@
 
 void DeviceSettings::begin() {
     preferences_.begin("delta", false);
-    const uint8_t savedMode = preferences_.getUChar("mode", 1);
-    defaultMode_ = savedMode == 0 ? AppMode::Music : (savedMode == 2 ? AppMode::Weather : AppMode::TimeDate);
-    batteryPercent_ = preferences_.getUChar("battery", 95);
+
+    const uint8_t savedMode = preferences_.getUChar("mode", static_cast<uint8_t>(AppMode::TimeDate));
+    defaultMode_ = appModeIsValid(savedMode) ? static_cast<AppMode>(savedMode) : AppMode::TimeDate;
+
     String savedSsid = preferences_.getString("ssid", Config::WIFI_SSID);
     String savedPassword = preferences_.getString("password", Config::WIFI_PASSWORD);
     savedSsid.toCharArray(wifiSsid_, sizeof(wifiSsid_));
@@ -15,19 +16,32 @@ void DeviceSettings::begin() {
 
 AppMode DeviceSettings::defaultMode() const { return defaultMode_; }
 uint8_t DeviceSettings::batteryPercent() const { return batteryPercent_; }
+bool DeviceSettings::batteryMeasured() const { return batterySampled_; }
 
-void DeviceSettings::updateBattery() {
+void DeviceSettings::updateBattery(unsigned long now) {
+    // No divider wired: report a full battery and flag it as unmeasured so the
+    // API can say so rather than passing a constant off as a reading.
     if (Config::BATTERY_ADC_PIN == 255) return;
-    const int raw = analogRead(Config::BATTERY_ADC_PIN);
-    const float voltage = (raw / 4095.0f) * 3.3f * Config::BATTERY_DIVIDER_RATIO;
+    if (batterySampled_ && now - lastBatterySampleAt_ < Config::BATTERY_SAMPLE_INTERVAL_MS) return;
+    lastBatterySampleAt_ = now;
+
+    // The ESP32 ADC is noisy and non-linear; average a burst of reads.
+    uint32_t total = 0;
+    for (uint8_t i = 0; i < Config::BATTERY_SAMPLE_COUNT; ++i) {
+        total += analogReadMilliVolts(Config::BATTERY_ADC_PIN);
+    }
+    const float millivolts = static_cast<float>(total) / Config::BATTERY_SAMPLE_COUNT;
+    const float voltage = (millivolts / 1000.0f) * Config::BATTERY_DIVIDER_RATIO;
     const float percent = ((voltage - Config::BATTERY_EMPTY_VOLTAGE) * 100.0f) /
         (Config::BATTERY_FULL_VOLTAGE - Config::BATTERY_EMPTY_VOLTAGE);
+
     batteryPercent_ = static_cast<uint8_t>(constrain(percent, 0.0f, 100.0f));
+    batterySampled_ = true;
 }
 
 void DeviceSettings::setDefaultMode(AppMode mode) {
     defaultMode_ = mode;
-    preferences_.putUChar("mode", mode == AppMode::Music ? 0 : (mode == AppMode::Weather ? 2 : 1));
+    preferences_.putUChar("mode", static_cast<uint8_t>(mode));
 }
 
 const char* DeviceSettings::wifiSsid() const { return wifiSsid_; }

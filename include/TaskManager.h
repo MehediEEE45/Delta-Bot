@@ -2,13 +2,15 @@
 
 #include <Arduino.h>
 #include <Preferences.h>
+#include <time.h>
+#include "Config.h"
 
 struct TaskItem {
     String text;
     bool completed = false;
 };
 
-enum class PomodoroState { Stopped, Work, Break };
+enum class PomodoroState { Stopped, Work, Break, Paused };
 
 struct PetStats {
     uint8_t hunger = 80;    // 0 = Starving, 100 = Full
@@ -18,6 +20,8 @@ struct PetStats {
 
 class TaskManager {
 public:
+    static constexpr size_t MAX_TASKS = 5;
+
     TaskManager();
     void begin();
 
@@ -39,15 +43,18 @@ public:
     String reminderTitle() const;
     unsigned long reminderTargetTime() const;
     bool isReminderActive() const;
-    bool isReminderTriggered(unsigned long now) const;
+    bool isReminderDue() const;
+    // True exactly once, on the first call after the reminder comes due.
+    bool consumeReminderTrigger();
     void clearReminder();
 
     // Pomodoro API
     void startPomodoro(unsigned long now);
-    void pausePomodoro();
+    void pausePomodoro(unsigned long now);
     void resetPomodoro();
     void updatePomodoro(unsigned long now);
     PomodoroState pomodoroState() const;
+    const char* pomodoroStateName() const;
     unsigned long pomodoroRemainingSec(unsigned long now) const;
 
     // Virtual Pet API
@@ -78,11 +85,15 @@ public:
 
     void saveToFlash();
     void loadFromFlash();
+    // Commits pending background changes at most once per FLASH_THROTTLE_MS.
+    void maybePersist(unsigned long now);
 
 private:
+    void markDirty();
+
     Preferences prefs_;
 
-    TaskItem tasks_[5];
+    TaskItem tasks_[MAX_TASKS];
     size_t taskCount_ = 0;
 
     String notice_;
@@ -91,6 +102,7 @@ private:
     String reminderTitle_;
     unsigned long reminderTargetTime_ = 0;
     bool reminderActive_ = false;
+    bool reminderFired_ = false;
 
     PomodoroState pomodoroState_ = PomodoroState::Stopped;
     unsigned long pomodoroStartedAt_ = 0;
@@ -102,8 +114,11 @@ private:
     String lastAnswer_;
     String currentQuote_;
 
-    uint8_t canvasBuffer_[1024];
+    uint8_t canvasBuffer_[Config::CANVAS_BUFFER_BYTES];
 
     bool guardArmed_ = false;
     bool guardAlarmTriggered_ = false;
+
+    bool dirty_ = false;
+    unsigned long lastSaveAt_ = 0;
 };

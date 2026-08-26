@@ -1,5 +1,6 @@
 #include "TaskManager.h"
 #include "Config.h"
+#include <string.h>
 
 namespace {
 const char* const QUOTES[] = {
@@ -23,6 +24,11 @@ const char* const ANSWERS[] = {
     "NO WAY!"
 };
 const size_t NUM_ANSWERS = sizeof(ANSWERS) / sizeof(ANSWERS[0]);
+
+// Rollover-safe deadline test: true once `now` has reached `deadline`.
+inline bool reached(unsigned long now, unsigned long deadline) {
+    return static_cast<long>(now - deadline) >= 0;
+}
 }
 
 TaskManager::TaskManager() {
@@ -32,12 +38,13 @@ TaskManager::TaskManager() {
 
 void TaskManager::begin() {
     loadFromFlash();
+    lastSaveAt_ = millis();
 }
 
 void TaskManager::loadFromFlash() {
     prefs_.begin("task_mgr", true); // read-only mode
     taskCount_ = prefs_.getUChar("t_count", 0);
-    if (taskCount_ > 5) taskCount_ = 0;
+    if (taskCount_ > MAX_TASKS) taskCount_ = 0;
 
     for (size_t i = 0; i < taskCount_; ++i) {
         String keyT = "t_" + String(i);
@@ -63,10 +70,22 @@ void TaskManager::saveToFlash() {
     prefs_.putUChar("p_hunger", pet_.hunger);
     prefs_.putUChar("p_happy", pet_.happiness);
     prefs_.end();
+    dirty_ = false;
+    lastSaveAt_ = millis();
+}
+
+void TaskManager::markDirty() {
+    dirty_ = true;
+}
+
+void TaskManager::maybePersist(unsigned long now) {
+    if (!dirty_) return;
+    if (now - lastSaveAt_ < Config::FLASH_THROTTLE_MS) return;
+    saveToFlash();
 }
 
 bool TaskManager::addTask(const String& text) {
-    if (taskCount_ >= 5 || text.length() == 0) return false;
+    if (taskCount_ >= MAX_TASKS || text.length() == 0) return false;
     tasks_[taskCount_].text = text;
     tasks_[taskCount_].completed = false;
     taskCount_++;
@@ -83,15 +102,21 @@ bool TaskManager::toggleTask(size_t index) {
 
 bool TaskManager::deleteTask(size_t index) {
     if (index >= taskCount_) return false;
-    for (size_t i = index; i < taskCount_ - 1; ++i) {
+    for (size_t i = index; i + 1 < taskCount_; ++i) {
         tasks_[i] = tasks_[i + 1];
     }
     taskCount_--;
+    tasks_[taskCount_].text = "";
+    tasks_[taskCount_].completed = false;
     saveToFlash();
     return true;
 }
 
 void TaskManager::clearTasks() {
+    for (size_t i = 0; i < MAX_TASKS; ++i) {
+        tasks_[i].text = "";
+        tasks_[i].completed = false;
+    }
     taskCount_ = 0;
     saveToFlash();
 }
@@ -115,13 +140,14 @@ String TaskManager::notice() const {
 }
 
 bool TaskManager::hasActiveNotice(unsigned long now) const {
-    return notice_.length() > 0 && now < noticeExpiresAt_;
+    return notice_.length() > 0 && !reached(now, noticeExpiresAt_);
 }
 
 void TaskManager::setReminder(const String& title, unsigned long targetTimeSec) {
     reminderTitle_ = title;
     reminderTargetTime_ = targetTimeSec;
     reminderActive_ = true;
+    reminderFired_ = false;
 }
 
 String TaskManager::reminderTitle() const {
@@ -136,47 +162,66 @@ bool TaskManager::isReminderActive() const {
     return reminderActive_;
 }
 
-bool TaskManager::isReminderTriggered(unsigned long now) const {
+bool TaskManager::isReminderDue() const {
     if (!reminderActive_) return false;
-    time_t current = time(nullptr);
-    return current >= (time_t)reminderTargetTime_;
+    const time_t current = time(nullptr);
+    if (current <= 100000) return false; // clock has not synced yet
+    return current >= static_cast<time_t>(reminderTargetTime_);
+}
+
+bool TaskManager::consumeReminderTrigger() {
+    if (reminderFired_ || !isReminderDue()) return false;
+    reminderFired_ = true;
+    return true;
 }
 
 void TaskManager::clearReminder() {
     reminderActive_ = false;
+    reminderFired_ = false;
     reminderTitle_ = "";
     reminderTargetTime_ = 0;
 }
 
 void TaskManager::startPomodoro(unsigned long now) {
-    if (pomodoroState_ == PomodoroState::Stopped) {
-        pomodoroState_ = PomodoroState::Work;
-        pomodoroStartedAt_ = now;
-        pomodoroDurationMs_ = Config::POMODORO_WORK_MS;
+    if (pomodoroState_ == PomodoroState::Paused) {
+        // Resume: rebase the start so only the saved remainder plays out.
+        pomodoroState_ = pomodoroDurationMs_ == Config::POMODORO_BREAK_MS
+            ? PomodoroState::Break : PomodoroState::Work;
+        pomodoroStartedAt_ = now - (pomodoroDurationMs_ - pomodoroPausedRemainingMs_);
+        pomodoroPausedRemainingMs_ = 0;
+        return;
     }
+    if (pomodoroState_ != PomodoroState::Stopped) return;
+    pomodoroState_ = PomodoroState::Work;
+    pomodoroStartedAt_ = now;
+    pomodoroDurationMs_ = Config::POMODORO_WORK_MS;
+    pomodoroPausedRemainingMs_ = 0;
 }
 
-void TaskManager::pausePomodoro() {
-    if (pomodoroState_ != PomodoroState::Stopped) {
-        pomodoroState_ = PomodoroState::Stopped;
-    }
+void TaskManager::pausePomodoro(unsigned long now) {
+    if (pomodoroState_ != PomodoroState::Work && pomodoroState_ != PomodoroState::Break) return;
+    const unsigned long elapsed = now - pomodoroStartedAt_;
+    pomodoroPausedRemainingMs_ = elapsed >= pomodoroDurationMs_ ? 0 : pomodoroDurationMs_ - elapsed;
+    pomodoroState_ = PomodoroState::Paused;
 }
 
 void TaskManager::resetPomodoro() {
     pomodoroState_ = PomodoroState::Stopped;
     pomodoroStartedAt_ = 0;
+    pomodoroDurationMs_ = 0;
+    pomodoroPausedRemainingMs_ = 0;
 }
 
 void TaskManager::updatePomodoro(unsigned long now) {
-    if (pomodoroState_ == PomodoroState::Stopped) return;
-    if (now - pomodoroStartedAt_ >= pomodoroDurationMs_) {
-        if (pomodoroState_ == PomodoroState::Work) {
-            pomodoroState_ = PomodoroState::Break;
-            pomodoroStartedAt_ = now;
-            pomodoroDurationMs_ = Config::POMODORO_BREAK_MS;
-        } else {
-            pomodoroState_ = PomodoroState::Stopped;
-        }
+    if (pomodoroState_ != PomodoroState::Work && pomodoroState_ != PomodoroState::Break) return;
+    if (now - pomodoroStartedAt_ < pomodoroDurationMs_) return;
+
+    if (pomodoroState_ == PomodoroState::Work) {
+        pomodoroState_ = PomodoroState::Break;
+        pomodoroStartedAt_ = now;
+        pomodoroDurationMs_ = Config::POMODORO_BREAK_MS;
+    } else {
+        resetPomodoro();
     }
 }
 
@@ -184,9 +229,19 @@ PomodoroState TaskManager::pomodoroState() const {
     return pomodoroState_;
 }
 
+const char* TaskManager::pomodoroStateName() const {
+    switch (pomodoroState_) {
+        case PomodoroState::Work:   return "work";
+        case PomodoroState::Break:  return "break";
+        case PomodoroState::Paused: return "paused";
+        default:                    return "stopped";
+    }
+}
+
 unsigned long TaskManager::pomodoroRemainingSec(unsigned long now) const {
+    if (pomodoroState_ == PomodoroState::Paused) return pomodoroPausedRemainingMs_ / 1000UL;
     if (pomodoroState_ == PomodoroState::Stopped) return 0;
-    unsigned long elapsed = now - pomodoroStartedAt_;
+    const unsigned long elapsed = now - pomodoroStartedAt_;
     if (elapsed >= pomodoroDurationMs_) return 0;
     return (pomodoroDurationMs_ - elapsed) / 1000UL;
 }
@@ -196,12 +251,14 @@ void TaskManager::updatePet(unsigned long now) {
         pet_.lastDecayAt = now;
         return;
     }
-    if (now - pet_.lastDecayAt >= Config::PET_DECAY_INTERVAL_MS) {
-        pet_.lastDecayAt = now;
-        if (pet_.hunger > 5) pet_.hunger -= 2;
-        if (pet_.happiness > 5) pet_.happiness -= 1;
-        saveToFlash();
-    }
+    if (now - pet_.lastDecayAt < Config::PET_DECAY_INTERVAL_MS) return;
+
+    pet_.lastDecayAt = now;
+    if (pet_.hunger > 5) pet_.hunger -= 2;
+    if (pet_.happiness > 5) pet_.happiness -= 1;
+    // Background decay only flags the change; maybePersist() batches the write
+    // so an idle bot does not commit to NVS once a minute forever.
+    markDirty();
 }
 
 void TaskManager::feedPet() {
@@ -220,8 +277,8 @@ const PetStats& TaskManager::petStats() const {
 }
 
 String TaskManager::askDecision(const String& question) {
-    size_t idx = random(0, NUM_ANSWERS);
-    lastAnswer_ = ANSWERS[idx];
+    (void)question; // the answer is deliberately independent of the question
+    lastAnswer_ = ANSWERS[random(0, NUM_ANSWERS)];
     return lastAnswer_;
 }
 
@@ -230,8 +287,7 @@ String TaskManager::lastAnswer() const {
 }
 
 String TaskManager::randomQuote() {
-    size_t idx = random(0, NUM_QUOTES);
-    currentQuote_ = QUOTES[idx];
+    currentQuote_ = QUOTES[random(0, NUM_QUOTES)];
     return currentQuote_;
 }
 
@@ -244,13 +300,14 @@ void TaskManager::clearCanvas() {
 }
 
 void TaskManager::setPixel(uint8_t x, uint8_t y, bool color) {
-    if (x >= 128 || y >= 64) return;
-    uint16_t idx = x + (y / 8) * 128;
-    uint8_t bit = y % 8;
+    if (x >= Config::CANVAS_WIDTH || y >= Config::CANVAS_HEIGHT) return;
+    // Adafruit_GFX drawBitmap layout: row-major, MSB-first within each byte.
+    const size_t idx = static_cast<size_t>(y) * (Config::CANVAS_WIDTH / 8) + (x / 8);
+    const uint8_t bit = 7 - (x % 8);
     if (color) {
-        canvasBuffer_[idx] |= (1 << bit);
+        canvasBuffer_[idx] |= static_cast<uint8_t>(1u << bit);
     } else {
-        canvasBuffer_[idx] &= ~(1 << bit);
+        canvasBuffer_[idx] &= static_cast<uint8_t>(~(1u << bit));
     }
 }
 
