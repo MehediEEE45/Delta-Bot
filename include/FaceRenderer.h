@@ -14,11 +14,14 @@ const char* weatherCodeText(int code);
 class FaceRenderer {
 public:
     FaceRenderer();
-    void begin();
+    // Returns false if the panel did not answer on I2C.
+    bool begin();
+    bool ready() const;
     void render(AppMode mode, Emotion emotion, const WeatherData& weather, bool wifiOnline, unsigned long now, TaskManager* taskMgr = nullptr);
 
 private:
     Adafruit_SSD1305 display_;
+    bool ready_ = false;
     void drawFace(Emotion emotion, unsigned long now);
     void drawEyes(Emotion emotion, unsigned long now);
     void drawMouth(Emotion emotion, unsigned long now);

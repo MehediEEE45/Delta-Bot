@@ -29,17 +29,16 @@ TouchEvent TouchSensor::update(unsigned long now) {
         lastChangeAt_ = now;
     }
 
-    if (now - lastChangeAt_ < Config::TOUCH_DEBOUNCE_MS) {
-        return TouchEvent::None;
-    }
-
-    if (reading != stableState_) {
+    // Debounce gates only the state transition. The long-press timer and the
+    // tap-window expiry below still run, so neither can be swallowed by a
+    // bounce that happens to land near the deadline.
+    if (reading != stableState_ && now - lastChangeAt_ >= Config::TOUCH_DEBOUNCE_MS) {
         stableState_ = reading;
         if (stableState_) {
             pressedAt_ = now;
             longPressSent_ = false;
         } else if (!longPressSent_) {
-            tapCount_ = min<uint8_t>(tapCount_ + 1, 3);
+            tapCount_ = min<uint8_t>(static_cast<uint8_t>(tapCount_ + 1), 3);
             lastTapAt_ = now;
         }
     }

@@ -3,7 +3,6 @@
 #include <WiFi.h>
 #include "Config.h"
 #include "TaskManager.h"
-#include "AppController.h"
 
 namespace {
 constexpr uint16_t PixelOn = 1;
@@ -13,17 +12,31 @@ constexpr uint16_t PixelOff = 0;
 FaceRenderer::FaceRenderer()
     : display_(128, 64, &Wire, -1) {}
 
-void FaceRenderer::begin() {
+bool FaceRenderer::begin() {
     Wire.begin(Config::I2C_SDA_PIN, Config::I2C_SCL_PIN);
     Wire.setClock(400000);
-    display_.begin(Config::OLED_ADDRESS);
+    ready_ = display_.begin(Config::OLED_ADDRESS);
+    if (!ready_) {
+        Serial.print("OLED init FAILED at address 0x");
+        Serial.println(Config::OLED_ADDRESS, HEX);
+        Serial.println("Check SDA/SCL wiring, pull-ups, and the panel controller (SSD1305 vs SSD1306).");
+        return false;
+    }
     display_.setTextColor(PixelOn);
     display_.setTextSize(1);
+    return true;
 }
 
+bool FaceRenderer::ready() const { return ready_; }
+
 void FaceRenderer::render(AppMode mode, Emotion emotion, const WeatherData& weather, bool wifiOnline, unsigned long now, TaskManager* taskMgr) {
+    if (!ready_) return;
+
     display_.clearDisplay();
     display_.setTextColor(PixelOn);
+    // Screens are free to change size mid-draw; reset it so the next frame
+    // never inherits a size-2 font from the screen that ran before it.
+    display_.setTextSize(1);
 
     switch (mode) {
         case AppMode::TimeDate:
@@ -112,10 +125,17 @@ void FaceRenderer::drawNoticeScreen(TaskManager* taskMgr, unsigned long now) {
     display_.print("! NOTICE !");
     display_.drawFastHLine(10, 18, 108, PixelOn);
 
-    String text = taskMgr ? taskMgr->notice() : "Welcome to Delta-Bot!";
-    if (text.length() == 0) text = "No announcements.";
+    // hasActiveNotice() is what makes the broadcast duration mean anything;
+    // without it an expired notice scrolled forever.
+    String text;
+    if (taskMgr && taskMgr->hasActiveNotice(now)) {
+        text = taskMgr->notice();
+    } else {
+        text = "No announcements.";
+    }
 
-    int scrollOffset = static_cast<int>((now / 150) % (text.length() * 6 + 120));
+    const int span = static_cast<int>(text.length()) * 6 + 120;
+    const int scrollOffset = static_cast<int>((now / 150) % static_cast<unsigned long>(span));
     display_.setCursor(120 - scrollOffset, 32);
     display_.print(text);
 }
@@ -134,6 +154,10 @@ void FaceRenderer::drawReminderScreen(TaskManager* taskMgr, unsigned long now) {
     display_.setCursor(10, 42);
     if (taskMgr && taskMgr->isReminderActive()) {
         display_.print(taskMgr->reminderTitle().substring(0, 18));
+        if (taskMgr->isReminderDue()) {
+            display_.setCursor(10, 54);
+            display_.print("DUE - tap to clear");
+        }
     } else {
         display_.print("No active reminder");
     }
@@ -153,13 +177,15 @@ void FaceRenderer::drawPomodoroScreen(TaskManager* taskMgr, unsigned long now) {
         return;
     }
 
-    bool isWork = taskMgr->pomodoroState() == PomodoroState::Work;
-    unsigned long remSec = taskMgr->pomodoroRemainingSec(now);
-    int minutes = remSec / 60;
-    int seconds = remSec % 60;
+    const PomodoroState state = taskMgr->pomodoroState();
+    const unsigned long remSec = taskMgr->pomodoroRemainingSec(now);
+    const int minutes = static_cast<int>(remSec / 60);
+    const int seconds = static_cast<int>(remSec % 60);
 
     display_.setCursor(15, 22);
-    display_.print(isWork ? "[WORK FOCUS]" : "[COFFEE BREAK]");
+    if (state == PomodoroState::Paused) display_.print("[PAUSED]");
+    else if (state == PomodoroState::Work) display_.print("[WORK FOCUS]");
+    else display_.print("[COFFEE BREAK]");
 
     char buf[10];
     snprintf(buf, sizeof(buf), "%02d:%02d", minutes, seconds);
@@ -169,17 +195,11 @@ void FaceRenderer::drawPomodoroScreen(TaskManager* taskMgr, unsigned long now) {
 }
 
 void FaceRenderer::drawCanvasScreen(TaskManager* taskMgr, unsigned long now) {
+    (void)now;
     if (!taskMgr) return;
-    const uint8_t* buf = taskMgr->canvasBuffer();
-    for (uint8_t y = 0; y < 64; ++y) {
-        for (uint8_t x = 0; x < 128; ++x) {
-            uint16_t idx = x + (y / 8) * 128;
-            uint8_t bit = y % 8;
-            if (buf[idx] & (1 << bit)) {
-                display_.drawPixel(x, y, PixelOn);
-            }
-        }
-    }
+    // One blit instead of 8192 bounds-checked drawPixel calls per frame.
+    display_.drawBitmap(0, 0, taskMgr->canvasBuffer(),
+                        Config::CANVAS_WIDTH, Config::CANVAS_HEIGHT, PixelOn);
 }
 
 void FaceRenderer::drawQuotesScreen(TaskManager* taskMgr, unsigned long now) {
@@ -188,9 +208,15 @@ void FaceRenderer::drawQuotesScreen(TaskManager* taskMgr, unsigned long now) {
     display_.print("DAILY TIP");
     display_.drawFastHLine(10, 18, 108, PixelOn);
 
-    String quote = taskMgr ? taskMgr->currentQuote() : "Stay hungry, stay foolish.";
-    display_.setCursor(8, 24);
-    display_.print(quote.substring(0, 50));
+    const String quote = taskMgr ? taskMgr->currentQuote() : "Stay hungry, stay foolish.";
+    // 18 chars fit between the rounded border at size 1; wrap onto three lines.
+    constexpr size_t lineChars = 18;
+    for (size_t line = 0; line < 3; ++line) {
+        const size_t start = line * lineChars;
+        if (start >= quote.length()) break;
+        display_.setCursor(10, 24 + static_cast<int>(line) * 10);
+        display_.print(quote.substring(start, start + lineChars));
+    }
 }
 
 void FaceRenderer::drawDeskGuardScreen(TaskManager* taskMgr, unsigned long now) {
@@ -210,7 +236,9 @@ void FaceRenderer::drawDeskGuardScreen(TaskManager* taskMgr, unsigned long now) 
 }
 
 void FaceRenderer::drawPetScreen(TaskManager* taskMgr, unsigned long now) {
-    const PetStats& pet = taskMgr ? taskMgr->petStats() : PetStats();
+    (void)now;
+    if (!taskMgr) return;
+    const PetStats& pet = taskMgr->petStats();
     display_.setCursor(4, 4);
     display_.print("VIRTUAL PET");
     display_.drawFastHLine(4, 14, 120, PixelOn);
@@ -226,7 +254,7 @@ void FaceRenderer::drawPetScreen(TaskManager* taskMgr, unsigned long now) {
     display_.fillRect(68, 38, (pet.happiness * 50) / 100, 8, PixelOn);
 
     display_.setCursor(15, 52);
-    display_.print(pet.hunger > 30 ? "I feel great! :)" : "Feed me pizza! 🍕");
+    display_.print(pet.hunger > 30 ? "I feel great! :)" : "Feed me! I am hungry");
 }
 
 void FaceRenderer::drawDecisionScreen(TaskManager* taskMgr, unsigned long now) {
