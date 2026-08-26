@@ -19,6 +19,10 @@ public:
     void update(unsigned long now);
     const char* commandName() const;
 
+    // Starts a short left-right wiggle that runs from update(); never blocks.
+    void startShake(unsigned long now);
+    bool isShaking() const;
+
 private:
     uint8_t leftPwm_;
     uint8_t leftIn1_;
@@ -30,5 +34,10 @@ private:
     MotorCommand command_ = MotorCommand::Stop;
     uint8_t speed_ = 0;
     unsigned long lastCommandAt_ = 0;
+
+    uint8_t shakeStep_ = 0; // 0 = idle
+    unsigned long shakeStepAt_ = 0;
+
     void setMotor(uint8_t pwm, uint8_t in1, uint8_t in2, int16_t value);
+    void applyCommand(MotorCommand command, uint8_t speed);
 };

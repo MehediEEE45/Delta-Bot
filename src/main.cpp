@@ -29,8 +29,7 @@ bool startFallbackAccessPoint() {
     Serial.println(WiFi.softAPIP());
     Serial.print("Connect to Wi-Fi network: ");
     Serial.println(Config::FALLBACK_AP_SSID);
-    Serial.print("Fallback password: ");
-    Serial.println(Config::FALLBACK_AP_PASSWORD);
+    Serial.println("Fallback password: (see include/Secrets.h)");
     web.begin();
     return true;
   }
@@ -69,7 +68,7 @@ void connectWiFi() {
   ssid.trim();
   password.trim();
 
-  if (ssid.isEmpty() || ssid == "YOUR_WIFI_NAME") {
+  if (ssid.isEmpty() || ssid == "YOUR_WIFI_SSID") {
     Serial.println("Wi-Fi not configured; starting fallback network.");
     startFallbackAccessPoint();
     return;
@@ -135,7 +134,9 @@ void setup() {
   Serial.begin(115200);
   delay(500);
   Serial.println("Delta booting");
-  renderer.begin();
+  if (!renderer.begin()) {
+    Serial.println("Continuing headless; the web UI still works.");
+  }
   touch.begin();
   weather.begin();
   motors.begin();
