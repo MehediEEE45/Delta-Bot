@@ -246,6 +246,20 @@ unsigned long TaskManager::pomodoroRemainingSec(unsigned long now) const {
     return (pomodoroDurationMs_ - elapsed) / 1000UL;
 }
 
+float TaskManager::pomodoroProgress(unsigned long now) const {
+    if (pomodoroDurationMs_ == 0) return 0.0f;
+    unsigned long elapsed;
+    if (pomodoroState_ == PomodoroState::Paused) {
+        elapsed = pomodoroDurationMs_ - pomodoroPausedRemainingMs_;
+    } else if (pomodoroState_ == PomodoroState::Stopped) {
+        return 0.0f;
+    } else {
+        elapsed = now - pomodoroStartedAt_;
+    }
+    if (elapsed >= pomodoroDurationMs_) return 1.0f;
+    return static_cast<float>(elapsed) / static_cast<float>(pomodoroDurationMs_);
+}
+
 void TaskManager::updatePet(unsigned long now) {
     if (pet_.lastDecayAt == 0) {
         pet_.lastDecayAt = now;
@@ -317,7 +331,10 @@ const uint8_t* TaskManager::canvasBuffer() const {
 
 void TaskManager::setGuardArmed(bool armed) {
     guardArmed_ = armed;
-    if (!armed) guardAlarmTriggered_ = false;
+    if (!armed) {
+        guardAlarmTriggered_ = false;
+        guardPulseFired_ = false;
+    }
 }
 
 bool TaskManager::isGuardArmed() const {
@@ -328,10 +345,17 @@ void TaskManager::triggerGuardAlarm() {
     if (guardArmed_) guardAlarmTriggered_ = true;
 }
 
+bool TaskManager::consumeGuardAlarmPulse() {
+    if (!guardAlarmTriggered_ || guardPulseFired_) return false;
+    guardPulseFired_ = true;
+    return true;
+}
+
 bool TaskManager::isGuardAlarmTriggered() const {
     return guardAlarmTriggered_;
 }
 
 void TaskManager::resetGuardAlarm() {
     guardAlarmTriggered_ = false;
+    guardPulseFired_ = false;
 }

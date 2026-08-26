@@ -22,16 +22,16 @@
 
 | Feature | Description |
 | :--- | :--- |
-| 🏎️ **RC Car Drive Mode** | Remote control driving via Web D-Pad with speed control & steering eyes animation |
-| 🎭 **Smart Emotion Engine** | 8+ interactive animated face expressions (Happy, Love, Excited, Cool, Sad, Angry, Surprised, Sleep) |
+| 🏎️ **RC Car Drive Mode** | Remote control driving via Web D-Pad with speed control and a 1s motor watchdog |
+| 🎭 **Emotion Engine** | Eight emotion states (Happy, Love, Excited, Cool, Sad, Angry, Surprised, Sleep) driven by touch and the web UI. Distinct per-emotion faces are in progress — see the roadmap. |
 | 🎙️ **Web Speech AI Voice Control** | Voice commands directly from your smartphone browser (*"Forward"*, *"Happy"*, *"Sleep"*, *"Weather"*) |
 | 🐶 **Virtual Pet (Tamagotchi Mode)**| Hunger 🍕 & Happiness ❤️ meters with web feeding and touch head petting |
 | 🎲 **Magic 8-Ball Decision Maker** | Ask YES/NO questions and receive animated answers with motor wheel shakes |
-| ⏰ **NTP Clock & Live Weather** | Real-time clock synchronization and background weather updates (Open-Meteo API) |
+| ⏰ **NTP Clock & Live Weather** | NTP time sync plus animated weather icons (sun, cloud, rain, snow, storm) from Open-Meteo, fetched on a background task |
 | 📋 **Task Show & Notice Board** | Add To-Do lists via Web UI with checkbox indicators (`[x]`) and marquee announcements |
-| ⏱️ **Pomodoro Productivity Timer** | 25-minute work focus + 5-minute coffee break timer with animated progress rings |
+| ⏱️ **Pomodoro Productivity Timer** | 25-minute work focus + 5-minute coffee break, with a sweeping progress ring, pause and resume |
 | 🎨 **Live Pixel Art Canvas** | Draw on mobile screen and render drawings instantly on Delta-Bot's OLED face |
-| 🕵️‍♂️ **Desk Guard Security Mode** | Motion/touch intruder detection triggering `! BUSTED !` alarm face and warning motor pulses |
+| 🕵️‍♂️ **Desk Guard Security Mode** | Touch-based intruder detection triggering a flashing `! BUSTED !` alarm face and a warning wheel pulse |
 | 🌙 **Smart Night Light Mode** | Automatic ambient night mode with glowing moon & star animations after 10 PM |
 | 💾 **Flash Persistence (NVS)** | Saved tasks, pet levels, and network settings preserved in ESP32 Flash across reboots |
 

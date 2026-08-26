@@ -163,6 +163,11 @@ void loop() {
     Serial.println(touchEventName(touchEvent));
   }
   app.handleTouch(touchEvent, now);
+  // Desk Guard warning pulse: a caught intruder gets a wheel wiggle. main owns
+  // both objects, so the alarm stays decoupled from the motor driver.
+  if (app.taskManager().consumeGuardAlarmPulse()) {
+    motors.startShake(now);
+  }
   web.update();
   motors.update(now);
   app.update(now);

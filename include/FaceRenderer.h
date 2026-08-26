@@ -37,8 +37,11 @@ private:
     void drawMusicBlink(int bounceY, unsigned long now);
     void drawWeatherScreen(const WeatherData& weather, bool wifiOnline, unsigned long now);
     void drawTimeDateScreen(unsigned long now);
-    void drawRobotIcon(unsigned long now);
-    void drawWeatherIcon(int weatherCode, unsigned long now);
+    void drawWeatherIcon(int weatherCode, int cx, int cy, unsigned long now);
+    void drawCloud(int cx, int cy);
+    // Plots an arc clockwise from startDeg (0 = 3 o'clock) for sweepDeg.
+    // `dotted` skips every other step for the unfilled progress track.
+    void drawArc(int cx, int cy, int radius, float startDeg, float sweepDeg, bool dotted = false);
     void drawStatus(bool wifiOnline);
 
     // New Screens

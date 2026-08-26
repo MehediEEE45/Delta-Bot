@@ -3,6 +3,8 @@
 #include <WiFi.h>
 #include "Config.h"
 #include "TaskManager.h"
+#include <math.h>
+#include <string.h>
 
 namespace {
 constexpr uint16_t PixelOn = 1;
@@ -92,7 +94,7 @@ void FaceRenderer::render(AppMode mode, Emotion emotion, const WeatherData& weat
     display_.display();
 }
 
-void FaceRenderer::drawTasksScreen(TaskManager* taskMgr, unsigned long now) {
+void FaceRenderer::drawTasksScreen(TaskManager* taskMgr, unsigned long) {
     display_.setTextSize(1);
     display_.setCursor(4, 2);
     display_.print("TASKS / TODO LIST");
@@ -165,11 +167,11 @@ void FaceRenderer::drawReminderScreen(TaskManager* taskMgr, unsigned long now) {
 
 void FaceRenderer::drawPomodoroScreen(TaskManager* taskMgr, unsigned long now) {
     display_.setTextSize(1);
-    display_.setCursor(12, 4);
-    display_.print("POMODORO TIMER");
-    display_.drawFastHLine(10, 14, 108, PixelOn);
 
     if (!taskMgr || taskMgr->pomodoroState() == PomodoroState::Stopped) {
+        display_.setCursor(12, 4);
+        display_.print("POMODORO TIMER");
+        display_.drawFastHLine(10, 14, 108, PixelOn);
         display_.setCursor(25, 26);
         display_.print("Timer Stopped");
         display_.setCursor(15, 42);
@@ -182,15 +184,36 @@ void FaceRenderer::drawPomodoroScreen(TaskManager* taskMgr, unsigned long now) {
     const int minutes = static_cast<int>(remSec / 60);
     const int seconds = static_cast<int>(remSec % 60);
 
-    display_.setCursor(15, 22);
-    if (state == PomodoroState::Paused) display_.print("[PAUSED]");
-    else if (state == PomodoroState::Work) display_.print("[WORK FOCUS]");
-    else display_.print("[COFFEE BREAK]");
+    const char* label = state == PomodoroState::Paused ? "PAUSED"
+                      : (state == PomodoroState::Work ? "WORK FOCUS" : "COFFEE BREAK");
+    display_.setCursor(64 - static_cast<int>(strlen(label)) * 3, 2);
+    display_.print(label);
 
-    char buf[10];
+    // Progress ring: dotted track for the full interval, solid 2px arc for the
+    // elapsed portion, sweeping clockwise from 12 o'clock.
+    const int cx = 64;
+    const int cy = 38;
+    const int r = 21;
+    drawArc(cx, cy, r, 0.0f, 360.0f, true);
+
+    const float sweep = 360.0f * taskMgr->pomodoroProgress(now);
+    if (sweep > 0.0f) {
+        drawArc(cx, cy, r, -90.0f, sweep);
+        drawArc(cx, cy, r - 1, -90.0f, sweep);
+    }
+
+    // A paused timer blinks its head so a stalled ring is not mistaken for a
+    // running one.
+    if (state != PomodoroState::Paused || (now / 400) % 2 == 0) {
+        const float headA = (-90.0f + sweep) * DEG_TO_RAD;
+        display_.fillCircle(cx + static_cast<int>(lroundf(cosf(headA) * r)),
+                            cy + static_cast<int>(lroundf(sinf(headA) * r)), 2, PixelOn);
+    }
+
+    char buf[8];
     snprintf(buf, sizeof(buf), "%02d:%02d", minutes, seconds);
-    display_.setTextSize(2);
-    display_.setCursor(34, 38);
+    display_.setTextSize(1);
+    display_.setCursor(cx - 15, cy - 4);
     display_.print(buf);
 }
 
@@ -202,7 +225,7 @@ void FaceRenderer::drawCanvasScreen(TaskManager* taskMgr, unsigned long now) {
                         Config::CANVAS_WIDTH, Config::CANVAS_HEIGHT, PixelOn);
 }
 
-void FaceRenderer::drawQuotesScreen(TaskManager* taskMgr, unsigned long now) {
+void FaceRenderer::drawQuotesScreen(TaskManager* taskMgr, unsigned long) {
     display_.drawRoundRect(4, 4, 120, 56, 4, PixelOn);
     display_.setCursor(36, 8);
     display_.print("DAILY TIP");
@@ -219,7 +242,7 @@ void FaceRenderer::drawQuotesScreen(TaskManager* taskMgr, unsigned long now) {
     }
 }
 
-void FaceRenderer::drawDeskGuardScreen(TaskManager* taskMgr, unsigned long now) {
+void FaceRenderer::drawDeskGuardScreen(TaskManager*, unsigned long now) {
     const bool flash = (now / 300) % 2 == 0;
     if (flash) {
         display_.fillRect(0, 0, 128, 64, PixelOn);
@@ -257,7 +280,7 @@ void FaceRenderer::drawPetScreen(TaskManager* taskMgr, unsigned long now) {
     display_.print(pet.hunger > 30 ? "I feel great! :)" : "Feed me! I am hungry");
 }
 
-void FaceRenderer::drawDecisionScreen(TaskManager* taskMgr, unsigned long now) {
+void FaceRenderer::drawDecisionScreen(TaskManager* taskMgr, unsigned long) {
     display_.setCursor(10, 4);
     display_.print("MAGIC 8-BALL");
     display_.drawFastHLine(10, 14, 108, PixelOn);
@@ -285,6 +308,9 @@ void FaceRenderer::drawNightScreen(unsigned long now) {
 }
 
 void FaceRenderer::drawRCCarFace(Emotion emotion, unsigned long now) {
+    // TODO(phase-2): steering eyes. `emotion` is set by motorCommand() (Cool on
+    // a turn, Excited forward, Sad reverse) but nothing here reads it yet.
+    (void)emotion;
     const int speedTrail = static_cast<int>((now / 80) % 4);
     display_.fillRoundRect(20 - speedTrail, 18, 30, 20, 6, PixelOn);
     display_.fillRoundRect(78 + speedTrail, 18, 30, 20, 6, PixelOn);
@@ -311,7 +337,7 @@ void FaceRenderer::drawEyes(Emotion emotion, unsigned long now) {
     display_.fillRoundRect(84, 15, 27, 21, 5, PixelOn);
 }
 
-void FaceRenderer::drawMouth(Emotion emotion, unsigned long now) {
+void FaceRenderer::drawMouth(Emotion emotion, unsigned long) {
     if (emotion == Emotion::Sleep) return;
     display_.drawLine(52, 47, 76, 47, PixelOn);
 }
@@ -343,7 +369,7 @@ void FaceRenderer::drawMusicFace(unsigned long now) {
     drawMusicBlink(bounceY, now);
 }
 
-void FaceRenderer::drawMusicNote(int x, int y, bool doubleNote) {
+void FaceRenderer::drawMusicNote(int x, int y, bool) {
     if (y < 0 || y > 55) return;
     display_.fillCircle(x, y + 3, 2, PixelOn);
     display_.drawFastVLine(x + 2, y - 5, 8, PixelOn);
@@ -373,7 +399,7 @@ void FaceRenderer::drawMusicEyes(int bounceY, int grooveX) {
     display_.fillRoundRect(rightX - 16, ey - 9, 32, 18, 7, PixelOn);
 }
 
-void FaceRenderer::drawMusicMouth(int bounceY, int grooveX, float songTime, float beatPhase) {
+void FaceRenderer::drawMusicMouth(int bounceY, int grooveX, float, float) {
     const int mouthX = 64 + grooveX;
     const int mouthY = 35 + bounceY;
     display_.fillRoundRect(mouthX - 7, mouthY, 14, 6, 3, PixelOn);
@@ -400,37 +426,118 @@ void FaceRenderer::drawMusicBlink(int bounceY, unsigned long now) {
 }
 
 void FaceRenderer::drawWeatherScreen(const WeatherData& weather, bool wifiOnline, unsigned long now) {
-    char timeText[13] = "--:--:--";
+    (void)wifiOnline; // drawStatus() already reports the link
+
+    char timeText[8] = "--:--";
     const time_t currentTime = time(nullptr);
     struct tm timeInfo;
     if (currentTime > 100000 && localtime_r(&currentTime, &timeInfo) != nullptr) {
-        strftime(timeText, sizeof(timeText), "%I:%M:%S %p", &timeInfo);
+        strftime(timeText, sizeof(timeText), "%H:%M", &timeInfo);
     }
-    display_.setTextSize(2);
-    display_.setCursor(15, 12);
-    display_.print(timeText);
     display_.setTextSize(1);
-    display_.setCursor(15, 38);
-    display_.print("TEMP: ");
-    display_.print(weather.valid ? String(weather.temperature, 0) + " C" : "-- C");
+    display_.setCursor(4, 3);
+    display_.print(timeText);
+    display_.drawFastHLine(0, 13, 128, PixelOn);
+
+    drawWeatherIcon(weather.valid ? weather.weatherCode : -1, 26, 36, now);
+
+    display_.setTextSize(2);
+    display_.setCursor(56, 24);
+    if (weather.valid) {
+        display_.print(static_cast<int>(lroundf(weather.temperature)));
+        display_.print("C");
+    } else {
+        display_.print("--");
+    }
+
+    display_.setTextSize(1);
+    display_.setCursor(56, 46);
+    display_.print(weather.valid ? weatherCodeText(weather.weatherCode) : "No data");
 }
 
-void FaceRenderer::drawRobotIcon(unsigned long now) {
-    display_.drawRoundRect(3, 3, 24, 18, 4, PixelOn);
+void FaceRenderer::drawArc(int cx, int cy, int radius, float startDeg, float sweepDeg, bool dotted) {
+    if (radius <= 0 || sweepDeg == 0.0f) return;
+    // ~3 degrees per step keeps the spacing under 1.2px at r=22, so a solid
+    // arc has no gaps; the dotted track skips every other step.
+    const int steps = max(2, static_cast<int>(fabs(sweepDeg) / 3.0f));
+    for (int i = 0; i <= steps; ++i) {
+        if (dotted && (i % 2)) continue;
+        const float a = (startDeg + sweepDeg * i / steps) * DEG_TO_RAD;
+        display_.drawPixel(cx + static_cast<int>(lroundf(cosf(a) * radius)),
+                           cy + static_cast<int>(lroundf(sinf(a) * radius)), PixelOn);
+    }
 }
 
-void FaceRenderer::drawWeatherIcon(int weatherCode, unsigned long now) {
-    display_.fillCircle(17, 43, 6, PixelOn);
+void FaceRenderer::drawCloud(int cx, int cy) {
+    display_.fillCircle(cx - 6, cy + 1, 5, PixelOn);
+    display_.fillCircle(cx + 5, cy + 1, 5, PixelOn);
+    display_.fillCircle(cx - 1, cy - 3, 7, PixelOn);
+    display_.fillRect(cx - 6, cy + 1, 12, 5, PixelOn);
+}
+
+void FaceRenderer::drawWeatherIcon(int weatherCode, int cx, int cy, unsigned long now) {
+    // Codes follow weatherCodeText(): 0 clear, <=3 cloud, <=67 rain, <=77 snow.
+    if (weatherCode < 0) {
+        display_.drawCircle(cx, cy, 11, PixelOn);
+        display_.setTextSize(2);
+        display_.setCursor(cx - 5, cy - 7);
+        display_.print("?");
+        display_.setTextSize(1);
+        return;
+    }
+
+    if (weatherCode == 0) { // clear: sun with rotating rays
+        display_.fillCircle(cx, cy, 7, PixelOn);
+        const float spin = (now / 90.0f) * DEG_TO_RAD;
+        for (int i = 0; i < 8; ++i) {
+            const float a = spin + i * (PI / 4.0f);
+            const int x0 = cx + static_cast<int>(lroundf(cosf(a) * 10));
+            const int y0 = cy + static_cast<int>(lroundf(sinf(a) * 10));
+            const int x1 = cx + static_cast<int>(lroundf(cosf(a) * 14));
+            const int y1 = cy + static_cast<int>(lroundf(sinf(a) * 14));
+            display_.drawLine(x0, y0, x1, y1, PixelOn);
+        }
+        return;
+    }
+
+    drawCloud(cx, cy - 4);
+
+    if (weatherCode <= 3) return; // cloud only
+
+    const int drift = static_cast<int>((now / 160) % 4);
+
+    if (weatherCode <= 67) { // rain: slanted streaks falling on a loop
+        for (int i = 0; i < 3; ++i) {
+            const int x = cx - 7 + i * 7;
+            const int y = cy + 6 + ((drift + i * 2) % 4);
+            display_.drawLine(x, y, x - 2, y + 4, PixelOn);
+        }
+        return;
+    }
+
+    if (weatherCode <= 77) { // snow: drifting sparkles
+        for (int i = 0; i < 3; ++i) {
+            drawSparkle(cx - 7 + i * 7, cy + 8 + ((drift + i) % 3), 2);
+        }
+        return;
+    }
+
+    // storm: lightning bolt under the cloud
+    display_.fillTriangle(cx + 1, cy + 5, cx - 5, cy + 13, cx, cy + 12, PixelOn);
+    display_.fillTriangle(cx - 1, cy + 16, cx + 5, cy + 8, cx, cy + 9, PixelOn);
 }
 
 void FaceRenderer::drawSimpleRobotFace(Emotion emotion, unsigned long now) {
+    // TODO(phase-2): this is why all eight emotions render identically. The
+    // expression table replaces this function wholesale.
+    (void)emotion;
     const int bob = static_cast<int>((now / 500) % 2);
     const int eyeY = 20 + bob;
     display_.fillRoundRect(18, eyeY, 27, 21, 5, PixelOn);
     display_.fillRoundRect(84, eyeY, 27, 21, 5, PixelOn);
 }
 
-void FaceRenderer::drawTimeDateScreen(unsigned long now) {
+void FaceRenderer::drawTimeDateScreen(unsigned long) {
     char timeText[13] = "--:--:--";
     const time_t currentTime = time(nullptr);
     struct tm timeInfo;

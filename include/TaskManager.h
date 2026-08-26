@@ -56,6 +56,8 @@ public:
     PomodoroState pomodoroState() const;
     const char* pomodoroStateName() const;
     unsigned long pomodoroRemainingSec(unsigned long now) const;
+    // 0.0 at the start of the current interval, 1.0 at its end. Drives the ring.
+    float pomodoroProgress(unsigned long now) const;
 
     // Virtual Pet API
     void updatePet(unsigned long now);
@@ -81,6 +83,9 @@ public:
     bool isGuardArmed() const;
     void triggerGuardAlarm();
     bool isGuardAlarmTriggered() const;
+    // True exactly once per alarm, so the caller can fire a warning wiggle
+    // without TaskManager needing to know about motors.
+    bool consumeGuardAlarmPulse();
     void resetGuardAlarm();
 
     void saveToFlash();
@@ -118,6 +123,7 @@ private:
 
     bool guardArmed_ = false;
     bool guardAlarmTriggered_ = false;
+    bool guardPulseFired_ = false;
 
     bool dirty_ = false;
     unsigned long lastSaveAt_ = 0;
