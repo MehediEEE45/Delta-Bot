@@ -1,6 +1,9 @@
 #pragma once
 
 #include <Arduino.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <freertos/queue.h>
 
 struct WeatherData {
     float temperature = NAN;
@@ -11,6 +14,8 @@ struct WeatherData {
     bool lastRequestFailed = false;
 };
 
+// Fetches current conditions from Open-Meteo on a dedicated FreeRTOS task, so
+// the TLS handshake never blocks the render loop or the web server.
 class WeatherService {
 public:
     void begin();
@@ -21,7 +26,17 @@ public:
     const char* statusName() const;
 
 private:
-    WeatherData data_;
+    static void taskEntry(void* arg);
+    void taskLoop();
+    bool fetch(WeatherData& out);
+
+    WeatherData data_;   // only ever touched by the main loop
+    // The worker hands results over through a length-1 queue rather than a
+    // shared struct: FreeRTOS copies the payload inside a critical section, so
+    // there is no ordering assumption between the data and a "ready" flag.
+    QueueHandle_t resultQueue_ = nullptr;
+    volatile bool fetchInFlight_ = false;
     bool online_ = false;
     unsigned long lastAttemptAt_ = 0;
+    TaskHandle_t task_ = nullptr;
 };
