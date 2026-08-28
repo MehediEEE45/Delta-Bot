@@ -5,13 +5,24 @@
 void DeviceSettings::begin() {
     preferences_.begin("delta", false);
 
-    const uint8_t savedMode = preferences_.getUChar("mode", static_cast<uint8_t>(AppMode::TimeDate));
-    defaultMode_ = appModeIsValid(savedMode) ? static_cast<AppMode>(savedMode) : AppMode::TimeDate;
+    // The animated face is the resting screen: it is the one that shows an
+    // emotion, so the touch pad has something visible to change.
+    const uint8_t savedMode = preferences_.getUChar("mode", static_cast<uint8_t>(AppMode::Face));
+    defaultMode_ = appModeIsValid(savedMode) ? static_cast<AppMode>(savedMode) : AppMode::Face;
 
     String savedSsid = preferences_.getString("ssid", Config::WIFI_SSID);
     String savedPassword = preferences_.getString("password", Config::WIFI_PASSWORD);
     savedSsid.toCharArray(wifiSsid_, sizeof(wifiSsid_));
     savedPassword.toCharArray(wifiPassword_, sizeof(wifiPassword_));
+
+    String savedTz = preferences_.getString("tz", Config::TIMEZONE);
+    savedTz.toCharArray(timezone_, sizeof(timezone_));
+    use24Hour_ = preferences_.getBool("fmt24", true);
+
+    String savedLat = preferences_.getString("lat", Config::WEATHER_LATITUDE);
+    String savedLon = preferences_.getString("lon", Config::WEATHER_LONGITUDE);
+    savedLat.toCharArray(latitude_, sizeof(latitude_));
+    savedLon.toCharArray(longitude_, sizeof(longitude_));
 }
 
 AppMode DeviceSettings::defaultMode() const { return defaultMode_; }
@@ -52,4 +63,24 @@ void DeviceSettings::setWiFiCredentials(const String& ssid, const String& passwo
     password.toCharArray(wifiPassword_, sizeof(wifiPassword_));
     preferences_.putString("ssid", wifiSsid_);
     preferences_.putString("password", wifiPassword_);
+}
+
+const char* DeviceSettings::timezone() const { return timezone_; }
+bool DeviceSettings::use24Hour() const { return use24Hour_; }
+
+void DeviceSettings::setClockSettings(const String& timezone, bool use24Hour) {
+    timezone.toCharArray(timezone_, sizeof(timezone_));
+    use24Hour_ = use24Hour;
+    preferences_.putString("tz", timezone_);
+    preferences_.putBool("fmt24", use24Hour_);
+}
+
+const char* DeviceSettings::weatherLatitude() const { return latitude_; }
+const char* DeviceSettings::weatherLongitude() const { return longitude_; }
+
+void DeviceSettings::setWeatherLocation(const String& latitude, const String& longitude) {
+    latitude.toCharArray(latitude_, sizeof(latitude_));
+    longitude.toCharArray(longitude_, sizeof(longitude_));
+    preferences_.putString("lat", latitude_);
+    preferences_.putString("lon", longitude_);
 }

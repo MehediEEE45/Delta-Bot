@@ -1,11 +1,15 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include "AppController.h"
+#include "BleConsole.h"
+#include "CommandProcessor.h"
 #include "Config.h"
 #include "FaceRenderer.h"
+#include "SerialConsole.h"
 #include "TouchSensor.h"
 #include "WebController.h"
 #include "Weather.h"
+#include "WiFiDiagnostics.h"
 #include "MotorController.h"
 
 FaceRenderer renderer;
@@ -13,9 +17,22 @@ WeatherService weather;
 TouchSensor touch(Config::TOUCH_PIN);
 AppController app(renderer, weather);
 MotorController motors(Config::MOTOR_LEFT_PWM, Config::MOTOR_LEFT_IN1, Config::MOTOR_LEFT_IN2, Config::MOTOR_RIGHT_PWM, Config::MOTOR_RIGHT_IN1, Config::MOTOR_RIGHT_IN2, Config::MOTOR_STBY);
-WebController web(app, motors);
+CommandProcessor commands(app, motors);
+WebController web(app, motors, commands);
+SerialConsole serialConsole(commands);
+BleConsole bleConsole(commands);
 
-bool startFallbackAccessPoint() {
+// What the OLED should tell the user once the radio has settled. Filled in by
+// the bring-up path so the panel can repeat what used to be serial-only.
+struct NetworkInfo {
+  bool valid = false;
+  bool apMode = false;
+  String ssid;
+  String password; // AP mode only; empty means the AP came up open
+  String ip;
+};
+
+bool startFallbackAccessPoint(NetworkInfo& info) {
   WiFi.disconnect(true, true);
   delay(100);
   WiFi.mode(WIFI_AP);
@@ -24,12 +41,18 @@ bool startFallbackAccessPoint() {
   IPAddress apSubnet(255, 255, 255, 0);
   WiFi.softAPConfig(apIp, apGateway, apSubnet);
 
+  info.apMode = true;
+  info.ssid = Config::FALLBACK_AP_SSID;
+
   if (WiFi.softAP(Config::FALLBACK_AP_SSID, Config::FALLBACK_AP_PASSWORD)) {
     Serial.print("Fallback website: http://");
     Serial.println(WiFi.softAPIP());
     Serial.print("Connect to Wi-Fi network: ");
     Serial.println(Config::FALLBACK_AP_SSID);
     Serial.println("Fallback password: (see include/Secrets.h)");
+    info.valid = true;
+    info.password = Config::FALLBACK_AP_PASSWORD;
+    info.ip = WiFi.softAPIP().toString();
     web.begin();
     return true;
   }
@@ -40,6 +63,9 @@ bool startFallbackAccessPoint() {
     Serial.println(WiFi.softAPIP());
     Serial.print("Connect to open Wi-Fi network: ");
     Serial.println(Config::FALLBACK_AP_SSID);
+    info.valid = true;
+    info.password = "";
+    info.ip = WiFi.softAPIP().toString();
     web.begin();
     return true;
   }
@@ -48,21 +74,14 @@ bool startFallbackAccessPoint() {
   return false;
 }
 
-const char* wifiStatusName(wl_status_t status) {
-  switch (status) {
-    case WL_IDLE_STATUS: return "IDLE";
-    case WL_SCAN_COMPLETED: return "SCAN_COMPLETED";
-    case WL_CONNECTED: return "CONNECTED";
-    case WL_NO_SSID_AVAIL: return "NO_SSID_AVAILABLE";
-    case WL_CONNECT_FAILED: return "CONNECT_FAILED";
-    case WL_CONNECTION_LOST: return "CONNECTION_LOST";
-    case WL_DISCONNECTED: return "DISCONNECTED";
-    case WL_NO_SHIELD: return "NO_SHIELD";
-    default: return "OTHER";
-  }
+// runWiFiDiagnostics() takes a plain function pointer, so the display it needs
+// to keep alive is reached through the file-scope renderer rather than a
+// capture.
+void paintBootProgress(const char* headline, const char* detail) {
+  renderer.showBootStatus(headline, detail, millis());
 }
 
-void connectWiFi() {
+void connectWiFi(NetworkInfo& info) {
   String ssid = app.wifiSsid();
   String password = app.wifiPassword();
   ssid.trim();
@@ -70,63 +89,65 @@ void connectWiFi() {
 
   if (ssid.isEmpty() || ssid == "YOUR_WIFI_SSID") {
     Serial.println("Wi-Fi not configured; starting fallback network.");
-    startFallbackAccessPoint();
+    renderer.showBootStatus("no wi-fi set", "starting setup ap", millis());
+    startFallbackAccessPoint(info);
     return;
   }
 
-  WiFi.persistent(false);
   WiFi.setAutoReconnect(true);
-  WiFi.mode(WIFI_STA);
   WiFi.disconnect(true, true);
   delay(150);
-  Serial.println("Scanning Wi-Fi networks...");
-  const int networkCount = WiFi.scanNetworks();
-  bool ssidSeen = false;
-  for (int index = 0; index < networkCount; ++index) {
-    Serial.print("  Found: ");
-    const String foundSsid = WiFi.SSID(index);
-    Serial.println(foundSsid);
-    if (foundSsid == ssid) {
-      ssidSeen = true;
-    }
-  }
-  WiFi.scanDelete();
-  if (!ssidSeen) {
-    Serial.println("Configured SSID was not found in scan (it may be hidden or out of range).");
-  }
 
-  Serial.print("Connecting to SSID: ");
-  Serial.println(ssid);
-  if (password.isEmpty()) {
-    WiFi.begin(ssid.c_str());
-  } else {
-    WiFi.begin(ssid.c_str(), password.c_str());
-  }
-  Serial.print("Connecting to Wi-Fi");
-  const unsigned long startedAt = millis();
-  wl_status_t lastStatus = WL_IDLE_STATUS;
-  while (WiFi.status() != WL_CONNECTED && millis() - startedAt < 20000) {
-    delay(250);
-    Serial.print('.');
-    const wl_status_t currentStatus = WiFi.status();
-    if (currentStatus != lastStatus) {
-      Serial.print(" status=");
-      Serial.print(static_cast<int>(currentStatus));
-      Serial.print(" (");
-      Serial.print(wifiStatusName(currentStatus));
-      Serial.print(')');
-      lastStatus = currentStatus;
-    }
-  }
+  const WiFiDiagnostics diag = runWiFiDiagnostics(ssid, password, 20000, paintBootProgress);
+  commands.setLastDiagnostics(diag);
   Serial.println();
-  if (WiFi.status() == WL_CONNECTED) {
-    configTzTime(Config::TIMEZONE, "pool.ntp.org", "time.nist.gov");
+  diag.report(Serial);
+
+  if (diag.fault == WiFiFault::None) {
+    configTzTime(app.timezone(), "pool.ntp.org", "time.nist.gov");
     Serial.print("Delta web server: http://");
     Serial.println(WiFi.localIP());
+    info.valid = true;
+    info.apMode = false;
+    info.ssid = ssid;
+    info.ip = WiFi.localIP().toString();
     web.begin();
-  } else {
-    Serial.println("Wi-Fi connection failed; starting Delta fallback network.");
-    startFallbackAccessPoint();
+    return;
+  }
+
+  // Hold the reason on the panel before the setup card replaces it, so a
+  // failure is readable without a laptop attached.
+  if (renderer.ready()) {
+    renderer.showWiFiDiagScreen(diag);
+    delay(Config::WIFI_DIAG_CARD_MS);
+  }
+  Serial.println("Wi-Fi connection failed; starting Delta fallback network.");
+  startFallbackAccessPoint(info);
+}
+
+// Plays the boot name card through to its settled frame. setup() has nothing
+// else to do while it runs, so this blocks rather than threading splash state
+// through loop().
+void playSplash() {
+  const unsigned long startedAt = millis();
+  for (;;) {
+    const unsigned long elapsed = millis() - startedAt;
+    renderer.showSplash(elapsed);
+    if (elapsed >= Config::SPLASH_HOLD_MS) return;
+    delay(Config::SPLASH_FRAME_MS);
+  }
+}
+
+// Leaves the SSID, password and address on screen long enough to be typed into
+// a phone. The web server is already listening by this point, so keep pumping
+// it instead of blocking on a bare delay.
+void holdNetworkCard(const NetworkInfo& info) {
+  if (!info.valid || !renderer.ready()) return;
+  renderer.showNetworkCard(info.apMode, info.ssid, info.password, info.ip);
+  const unsigned long startedAt = millis();
+  while (millis() - startedAt < Config::NETWORK_CARD_MS) {
+    web.update();
+    delay(10);
   }
 }
 
@@ -136,32 +157,29 @@ void setup() {
   Serial.println("Delta booting");
   if (!renderer.begin()) {
     Serial.println("Continuing headless; the web UI still works.");
+  } else {
+    // Name card first, so a bare panel proves itself before Wi-Fi is tried.
+    playSplash();
   }
   touch.begin();
   weather.begin();
   motors.begin();
   app.begin();
-  connectWiFi();
+  NetworkInfo network;
+  connectWiFi(network);
+  holdNetworkCard(network);
+  // BLE comes up after Wi-Fi so the radio is not being shared during the
+  // association attempt the diagnostics depend on.
+  bleConsole.begin();
+  serialConsole.begin();
 }
 
 void loop() {
+  web.update();
   const unsigned long now = millis();
-  static unsigned long lastHeartbeatAt = 0;
-  if (now - lastHeartbeatAt >= 5000) {
-    lastHeartbeatAt = now;
-    Serial.print("Heartbeat, Wi-Fi status: ");
-    const wl_status_t status = WiFi.status();
-    Serial.print(static_cast<int>(status));
-    Serial.print(" (");
-    Serial.print(wifiStatusName(status));
-    Serial.print(") mode=");
-    Serial.println(WiFi.getMode() == WIFI_AP ? "AP" : (WiFi.getMode() == WIFI_STA ? "STA" : "AP_STA"));
-  }
+  serialConsole.update();
+  bleConsole.update();
   const TouchEvent touchEvent = touch.update(now);
-  if (touchEvent != TouchEvent::None) {
-    Serial.print("Touch event: ");
-    Serial.println(touchEventName(touchEvent));
-  }
   app.handleTouch(touchEvent, now);
   // Desk Guard warning pulse: a caught intruder gets a wheel wiggle. main owns
   // both objects, so the alarm stays decoupled from the motor driver.

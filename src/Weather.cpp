@@ -26,6 +26,11 @@ void WeatherService::requestRefresh() {
     lastAttemptAt_ = 0;
 }
 
+void WeatherService::setLocation(const String& latitude, const String& longitude) {
+    latitude.toCharArray(latitude_, sizeof(latitude_));
+    longitude.toCharArray(longitude_, sizeof(longitude_));
+}
+
 void WeatherService::taskEntry(void* arg) {
     static_cast<WeatherService*>(arg)->taskLoop();
 }
@@ -44,9 +49,9 @@ void WeatherService::taskLoop() {
 
 bool WeatherService::fetch(WeatherData& out) {
     String url = "https://api.open-meteo.com/v1/forecast?latitude=";
-    url += Config::WEATHER_LATITUDE;
+    url += latitude_;
     url += "&longitude=";
-    url += Config::WEATHER_LONGITUDE;
+    url += longitude_;
     url += "&current=temperature_2m,weather_code&timezone=auto";
 
     WiFiClientSecure client;

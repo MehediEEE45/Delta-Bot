@@ -21,6 +21,10 @@ public:
     void begin();
     void update(unsigned long now);
     void requestRefresh();
+    // Only ever call this from the main task. The worker only reads it inside
+    // fetch(), which only runs after a task notification -- the same
+    // happens-before edge fetchInFlight_ already relies on, so no lock needed.
+    void setLocation(const String& latitude, const String& longitude);
     const WeatherData& data() const;
     bool isOnline() const;
     const char* statusName() const;
@@ -39,4 +43,6 @@ private:
     bool online_ = false;
     unsigned long lastAttemptAt_ = 0;
     TaskHandle_t task_ = nullptr;
+    char latitude_[16] = "23.8103";
+    char longitude_[16] = "90.4125";
 };

@@ -25,7 +25,9 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
 </div></div>
 
 <div class="panel"><h2>Web Voice Command</h2>
-<button onclick="startVoice()" style="background:var(--green)">Speak Command</button><span id="voiceText"></span></div>
+<button onclick="startVoice()" style="background:var(--green)">Speak Command</button><span id="voiceText"></span>
+<div style="font-size:12px;opacity:.7;margin-top:6px">Mic needs a secure page. On your own network without HTTPS, open
+chrome://flags/#unsafely-treat-insecure-origin-as-secure, add this bot's http:// address, enable, and relaunch.</div></div>
 
 <div class="panel"><h2>Emotions &amp; Modes</h2>
 <div class="grid">
@@ -61,7 +63,8 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
 <div id="remStatus" style="font-family:monospace"></div></div>
 
 <div class="panel"><h2>Pomodoro Timer</h2>
-<button onclick="pomoAction('start')">Start / Resume</button><button onclick="pomoAction('pause')">Pause</button><button onclick="pomoAction('reset')">Reset</button>
+<input id="pomoMinutes" type="number" min="1" max="180" value="25" placeholder="Focus minutes" style="width:100px">
+<button onclick="pomoStart()">Start / Resume</button><button onclick="pomoAction('pause')">Pause</button><button onclick="pomoAction('reset')">Reset</button>
 <div id="pomoStatus" style="font-family:monospace"></div></div>
 
 <div class="panel"><h2>Daily Quote</h2><button onclick="newQuote()">New Quote</button><span id="quote"></span></div>
@@ -72,8 +75,23 @@ const char INDEX_HTML[] PROGMEM = R"rawliteral(
 <div class="panel"><h2>Desk Guard Security</h2>
 <button onclick="toggleGuard(true)">Arm Guard</button><button onclick="toggleGuard(false)">Disarm</button></div>
 
+<div class="panel"><h2>Clock &amp; Region</h2>
+<input id="tzInput" placeholder="POSIX TZ, e.g. BST-6">
+<select id="fmtInput"><option value="24h">24-hour</option><option value="12h">12-hour</option></select>
+<button onclick="saveClock()">Save</button>
+<div style="margin-top:8px">
+<input id="latInput" placeholder="Latitude" style="width:90px">
+<input id="lonInput" placeholder="Longitude" style="width:90px">
+<button onclick="saveClock()">Save location</button>
+</div>
+<div id="clockStatus" style="font-family:monospace;margin-top:4px"></div></div>
+
 <div class="panel"><h2>Wi-Fi Setup</h2>
 <input id="wifiSsid" placeholder="SSID"><input id="wifiPassword" type="password" placeholder="Password"><button onclick="saveWiFi()">Save &amp; Reboot</button></div>
+
+<div class="panel"><h2>Wi-Fi Diagnostics</h2>
+<button onclick="loadDiag()">Show last radio check</button>
+<pre id="diag" style="font-family:monospace;white-space:pre-wrap;margin:8px 0 0"></pre></div>
 
 <script>
 let motorTimer=0,pixels=new Array(256).fill(0),canvasTimer=0;
@@ -83,6 +101,10 @@ function showErr(m){document.getElementById('err').textContent=m||''}
 async function post(u,o){try{const r=await fetch(u,Object.assign({method:'POST'},o||{}));if(r.status===401){showErr('Unauthorized - reload and enter the web password.');return null}if(!r.ok){showErr('Request failed: '+r.status);return null}showErr('');return r}catch(e){showErr('Network error');return null}}
 async function send(c){await post('/api/command?value='+encodeURIComponent(c));refresh()}
 function motor(c){clearInterval(motorTimer);const s=document.getElementById('motorSpeed').value;const fire=()=>fetch('/api/motor?command='+c+'&speed='+document.getElementById('motorSpeed').value,{method:'POST'});fire();if(c!=='stop')motorTimer=setInterval(fire,250)}
+// One drive pulse, no repeat -- the firmware's own motor watchdog coasts it to
+// a stop after ~1s. Used by voice, which has no matching "release" event the
+// way a held drive button does.
+function driveOnce(c){fetch('/api/motor?command='+c+'&speed='+document.getElementById('motorSpeed').value,{method:'POST'})}
 function releaseMotor(){clearInterval(motorTimer);motorTimer=0;fetch('/api/motor?command=stop&speed=0',{method:'POST'})}
 async function addTask(){const t=document.getElementById('taskText').value.trim();if(!t)return;await post('/api/tasks?action=add&text='+encodeURIComponent(t));document.getElementById('taskText').value='';refresh()}
 async function toggleTask(i){await post('/api/tasks?action=toggle&index='+i);refresh()}
@@ -91,6 +113,7 @@ async function sendNotice(){const m=document.getElementById('noticeMsg').value.t
 async function setReminder(){const t=document.getElementById('remTitle').value.trim();const m=document.getElementById('remMins').value;if(!t||!(m>0))return;await post('/api/reminder?action=set&title='+encodeURIComponent(t)+'&minutes='+m);refresh()}
 async function clearReminder(){await post('/api/reminder?action=clear');refresh()}
 async function pomoAction(a){await post('/api/pomodoro?action='+a);refresh()}
+async function pomoStart(){const m=document.getElementById('pomoMinutes').value;await post('/api/pomodoro?action=start&minutes='+m);refresh()}
 async function petAction(a){await post('/api/pet?action='+a);refresh()}
 async function newQuote(){await post('/api/quote');refresh()}
 async function setDefault(){await post('/api/default-mode');refresh()}
@@ -99,17 +122,26 @@ async function toggleGuard(a){await post('/api/guard?armed='+a);refresh()}
 function queueCanvas(){clearTimeout(canvasTimer);canvasTimer=setTimeout(sendCanvas,120)}
 async function sendCanvas(){await post('/api/canvas',{headers:{'Content-Type':'application/json'},body:JSON.stringify(pixels)})}
 async function clearCanvas(){pixels.fill(0);document.querySelectorAll('.cell').forEach(c=>c.classList.remove('on'));sendCanvas()}
+let clockFieldsLoaded=false,pomoMinutesLoaded=false;
+async function saveClock(){const tz=document.getElementById('tzInput').value.trim();const fmt=document.getElementById('fmtInput').value;const lat=document.getElementById('latInput').value.trim();const lon=document.getElementById('lonInput').value.trim();let q='format='+fmt;if(tz)q+='&tz='+encodeURIComponent(tz);if(lat&&lon)q+='&lat='+encodeURIComponent(lat)+'&lon='+encodeURIComponent(lon);const r=await post('/api/clock?'+q);if(r)document.getElementById('clockStatus').textContent='Saved.';refresh()}
 async function saveWiFi(){const s=document.getElementById('wifiSsid').value;const p=document.getElementById('wifiPassword').value;if(!s)return;if(!confirm('Save Wi-Fi settings and reboot Delta-Bot?'))return;await post('/api/wifi?ssid='+encodeURIComponent(s)+'&password='+encodeURIComponent(p))}
-function startVoice(){const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){alert('Speech Recognition is not supported in this browser.');return}const r=new SR();r.onresult=e=>{const t=e.results[0][0].transcript.toLowerCase();document.getElementById('voiceText').textContent=' Heard: "'+t+'"';if(t.includes('forward'))motor('forward');else if(t.includes('back'))motor('backward');else if(t.includes('left'))motor('left');else if(t.includes('right'))motor('right');else if(t.includes('stop'))releaseMotor();else if(t.includes('happy'))send('happy');else if(t.includes('sleep'))send('sleep');else if(t.includes('weather'))send('weather')};r.start()}
+async function loadDiag(){const el=document.getElementById('diag');try{const r=await fetch('/api/wifidiag');if(r.status===401){showErr('Unauthorized - reload and enter the web password.');return}const d=await r.json();showErr('');if(!d.valid){el.textContent='No radio check has run yet.';return}
+el.textContent='fault  : '+d.fault+' ('+d.summary+')\nmac    : '+d.mac+(d.macPlausible?'  [plausible]':'  [IMPLAUSIBLE - radio suspect]')+'\nscan   : '+d.scanCount+' network(s)\nssid   : '+(d.targetFound?'found, rssi '+d.targetRssi+' dBm':'not seen in scan')+'\nstatus : '+d.lastStatus+'\nat     : '+Math.round(d.capturedAtMs/1000)+'s since boot'}catch(e){showErr('Network error')}}
+function startVoice(){const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){alert('Speech Recognition is not supported in this browser.');return}const r=new SR();
+r.onerror=e=>{let m;if(e.error==='not-allowed'||e.error==='service-not-allowed')m=' Mic blocked - this page is not a secure origin. See the note below the button.';else if(e.error==='no-speech')m=' Did not catch that, try again.';else m=' Voice error: '+e.error;document.getElementById('voiceText').textContent=m};
+r.onresult=async e=>{const t=e.results[0][0].transcript.toLowerCase();document.getElementById('voiceText').textContent=' Heard: "'+t+'"';await post('/api/notice?text='+encodeURIComponent('Heard: '+t));if(t.includes('forward'))driveOnce('forward');else if(t.includes('back'))driveOnce('backward');else if(t.includes('left'))driveOnce('left');else if(t.includes('right'))driveOnce('right');else if(t.includes('stop'))releaseMotor();else if(t.includes('happy'))send('happy');else if(t.includes('sleep'))send('sleep');else if(t.includes('weather'))send('weather')};
+r.start()}
 function renderTasks(list){const el=document.getElementById('taskList');el.innerHTML='';(list||[]).forEach((t,i)=>{const row=document.createElement('div');row.className='row';const s=document.createElement('span');s.textContent=t.text;if(t.done)s.className='done';const b1=document.createElement('button');b1.className='mini';b1.textContent=t.done?'Undo':'Done';b1.onclick=()=>toggleTask(i);const b2=document.createElement('button');b2.className='mini';b2.textContent='Delete';b2.onclick=()=>deleteTask(i);row.append(s,b1,b2);el.appendChild(row)})}
 async function refresh(){try{const r=await fetch('/api/status');if(r.status===401){showErr('Unauthorized - reload and enter the web password.');return}const s=await r.json();showErr('');
 document.getElementById('status').textContent='MODE: '+s.mode+' | FACE: '+s.emotion+' | BATT: '+(s.batteryMeasured?s.battery+'%':'n/a')+' | NET: '+s.network+' | WEATHER: '+s.weather.status+(s.weather.valid?' '+s.weather.temperature+'C':'');
 document.getElementById('clock').textContent=s.time;
 document.getElementById('defMode').textContent='(currently: '+s.defaultMode+')';
+if(!clockFieldsLoaded){clockFieldsLoaded=true;document.getElementById('tzInput').value=s.timezone;document.getElementById('fmtInput').value=s.use24Hour?'24h':'12h';document.getElementById('latInput').value=s.weatherLat;document.getElementById('lonInput').value=s.weatherLon}
 document.getElementById('petStats').textContent='Hunger '+s.pet.hunger+' / Happy '+s.pet.happiness;
 document.getElementById('answer').textContent=s.lastAnswer||'';
 document.getElementById('quote').textContent=' '+s.quote;
-document.getElementById('pomoStatus').textContent=s.pomodoro.state==='stopped'?'Stopped':s.pomodoro.state+' - '+String(Math.floor(s.pomodoro.remaining/60)).padStart(2,'0')+':'+String(s.pomodoro.remaining%60).padStart(2,'0');
+document.getElementById('pomoStatus').textContent=(s.pomodoro.state==='stopped'?'Stopped':s.pomodoro.state+' - '+String(Math.floor(s.pomodoro.remaining/60)).padStart(2,'0')+':'+String(s.pomodoro.remaining%60).padStart(2,'0'))+' (focus: '+s.pomodoro.workMinutes+'m)';
+if(!pomoMinutesLoaded){pomoMinutesLoaded=true;document.getElementById('pomoMinutes').value=s.pomodoro.workMinutes}
 document.getElementById('remStatus').textContent=s.reminder.active?(s.reminder.title+(s.reminder.due?' (DUE)':' - pending')):'No reminder set';
 renderTasks(s.tasks)}catch(e){showErr('Network error')}}
 setInterval(refresh,2000);refresh();
@@ -120,7 +152,8 @@ setInterval(refresh,2000);refresh();
 constexpr size_t MAX_CANVAS_BODY = 4096;
 }
 
-WebController::WebController(AppController& app, MotorController& motors) : app_(app), motors_(motors) {}
+WebController::WebController(AppController& app, MotorController& motors, CommandProcessor& commands)
+    : app_(app), motors_(motors), commands_(commands) {}
 
 void WebController::begin() {
     registerRoutes();
@@ -174,6 +207,9 @@ void WebController::registerRoutes() {
         else sendError(400, "unknown command");
     });
 
+    server_.on("/api/wifidiag", HTTP_GET, [this]() { if (requireAuth()) handleWiFiDiagApi(); });
+    server_.on("/api/clock", HTTP_POST, [this]() { if (requireAuth()) handleClockApi(); });
+
     server_.on("/api/tasks", HTTP_POST, [this]() { if (requireAuth()) handleTasksApi(); });
     server_.on("/api/notice", HTTP_POST, [this]() { if (requireAuth()) handleNoticeApi(); });
     server_.on("/api/reminder", HTTP_POST, [this]() { if (requireAuth()) handleReminderApi(); });
@@ -202,6 +238,10 @@ void WebController::sendStatus() {
     document["night"] = app_.nightActive();
     document["network"] = WiFi.status() == WL_CONNECTED ? "online" : "offline";
     document["ip"] = WiFi.getMode() == WIFI_AP ? WiFi.softAPIP().toString() : WiFi.localIP().toString();
+    document["timezone"] = app_.timezone();
+    document["use24Hour"] = app_.use24Hour();
+    document["weatherLat"] = app_.weatherLatitude();
+    document["weatherLon"] = app_.weatherLongitude();
 
     const time_t currentTime = time(nullptr);
     if (currentTime > 100000) {
@@ -238,6 +278,7 @@ void WebController::sendStatus() {
     JsonObject pomo = document["pomodoro"].to<JsonObject>();
     pomo["state"] = tasks.pomodoroStateName();
     pomo["remaining"] = tasks.pomodoroRemainingSec(now);
+    pomo["workMinutes"] = tasks.pomodoroWorkMinutes();
 
     JsonObject reminder = document["reminder"].to<JsonObject>();
     reminder["active"] = tasks.isReminderActive();
@@ -263,24 +304,32 @@ void WebController::refreshWeather() {
 }
 
 bool WebController::handleCommand(const String& command) {
-    const unsigned long now = millis();
+    // The dashboard buttons only need the side effect, not the console's
+    // text output, so the reply is parked in a sink that goes nowhere.
+    class NullPrint : public Print {
+        size_t write(uint8_t) override { return 1; }
+    } sink;
+    return commands_.execute(command, sink);
+}
 
-    AppMode mode;
-    if (appModeFromName(command, mode)) {
-        app_.setMode(mode);
-        return true;
-    }
+void WebController::handleWiFiDiagApi() {
+    const WiFiDiagnostics& diag = commands_.lastDiagnostics();
 
-    if (command == "happy") app_.setEmotion(Emotion::Happy, 0, now);
-    else if (command == "love") app_.setEmotion(Emotion::Love, 0, now);
-    else if (command == "angry") app_.setEmotion(Emotion::Angry, 0, now);
-    else if (command == "cool") app_.setEmotion(Emotion::Cool, 0, now);
-    else if (command == "excited") app_.setEmotion(Emotion::Excited, 0, now);
-    else if (command == "sad") app_.setEmotion(Emotion::Sad, 0, now);
-    else if (command == "surprised") app_.setEmotion(Emotion::Surprised, 5000, now);
-    else if (command == "sleep") app_.setEmotion(Emotion::Sleep, 0, now);
-    else return false;
-    return true;
+    JsonDocument document;
+    document["valid"] = diag.valid;
+    document["fault"] = wifiFaultName(diag.fault);
+    document["summary"] = wifiFaultSummary(diag.fault);
+    document["mac"] = diag.mac;
+    document["macPlausible"] = diag.macPlausible;
+    document["scanCount"] = diag.scanCount;
+    document["targetFound"] = diag.targetFound;
+    document["targetRssi"] = diag.targetRssi;
+    document["lastStatus"] = wifiStatusName(diag.lastStatus);
+    document["capturedAtMs"] = diag.capturedAtMs;
+
+    String response;
+    serializeJson(document, response);
+    server_.send(200, "application/json", response);
 }
 
 void WebController::handleTasksApi() {
@@ -348,6 +397,12 @@ void WebController::handlePomodoroApi() {
     const unsigned long now = millis();
 
     if (action == "start") {
+        const String minutesArg = server_.arg("minutes");
+        if (minutesArg.length() > 0) {
+            const int minutes = minutesArg.toInt();
+            if (minutes < 1 || minutes > 180) { sendError(400, "minutes must be 1-180"); return; }
+            app_.taskManager().setPomodoroWorkMinutes(static_cast<uint16_t>(minutes));
+        }
         app_.taskManager().startPomodoro(now);
         app_.setMode(AppMode::Pomodoro);
     } else if (action == "pause") {
@@ -468,6 +523,27 @@ void WebController::updateWiFi() {
     app_.setWiFiCredentials(ssid, password);
     restartRequested_ = true;
     restartAt_ = millis();
+    sendOk();
+}
+
+void WebController::handleClockApi() {
+    const String tz = server_.arg("tz");
+    const String format = server_.arg("format");
+    const String lat = server_.arg("lat");
+    const String lon = server_.arg("lon");
+
+    if (tz.length() > 0) {
+        if (tz.length() > 39) { sendError(400, "timezone string too long"); return; }
+        app_.setClockSettings(tz, format != "12h");
+    } else if (format.length() > 0) {
+        app_.setClockSettings(app_.timezone(), format != "12h");
+    }
+
+    if (lat.length() > 0 && lon.length() > 0) {
+        if (lat.length() > 15 || lon.length() > 15) { sendError(400, "coordinate too long"); return; }
+        app_.setWeatherLocation(lat, lon);
+    }
+
     sendOk();
 }
 

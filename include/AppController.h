@@ -27,6 +27,12 @@ public:
     const char* wifiSsid() const;
     const char* wifiPassword() const;
     void setWiFiCredentials(const String& ssid, const String& password);
+    const char* timezone() const;
+    bool use24Hour() const;
+    void setClockSettings(const String& timezone, bool use24Hour);
+    const char* weatherLatitude() const;
+    const char* weatherLongitude() const;
+    void setWeatherLocation(const String& latitude, const String& longitude);
     const char* modeName() const;
     const char* emotionName() const;
     bool nightActive() const;
@@ -44,21 +50,27 @@ private:
     ClockMode clockMode_;
     TaskManager taskManager_;
 
-    AppMode mode_ = AppMode::TimeDate;
+    AppMode mode_ = AppMode::Face;
     Emotion emotion_ = Emotion::Idle;
     unsigned long emotionUntil_ = 0;
     bool emotionTimed_ = false;
     unsigned long lastInteractionAt_ = 0;
     unsigned long nextIdleEmotionAt_ = 0;
+    unsigned long nextRandomEmotionAt_ = 0;
 
     // Night mode is applied on the 22:00 / 06:00 edges only, so it can never
     // fight a mode the user picked while it is dark.
     bool nightActive_ = false;
     bool nightInitialised_ = false;
-    AppMode preNightMode_ = AppMode::TimeDate;
+    AppMode preNightMode_ = AppMode::Face;
 
     void checkNightMode();
     void checkReminder(unsigned long now);
     void noteInteraction(unsigned long now);
     Emotion restingEmotion() const;
+    // Steps `delta` places along the browsable screen list. +1 is the next
+    // screen, -1 the previous.
+    void cycleMode(int delta);
+    void scheduleRandomEmotion(unsigned long now);
+    static Emotion randomEmotionOtherThan(Emotion current);
 };

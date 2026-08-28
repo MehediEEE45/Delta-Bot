@@ -4,10 +4,27 @@
 #include <time.h>
 
 namespace {
-// Rollover-safe deadline test: true once `now` has reached `deadline`.
 inline bool reached(unsigned long now, unsigned long deadline) {
     return static_cast<long>(now - deadline) >= 0;
 }
+
+constexpr AppMode BROWSABLE_MODES[] = {
+    AppMode::Face,
+    AppMode::TimeDate,
+    AppMode::Weather,
+    AppMode::Tasks,
+    AppMode::Pomodoro,
+    AppMode::Pet,
+    AppMode::Quotes,
+    AppMode::Music,
+};
+constexpr int BROWSABLE_COUNT = sizeof(BROWSABLE_MODES) / sizeof(BROWSABLE_MODES[0]);
+
+constexpr Emotion RANDOM_EMOTIONS[] = {
+    Emotion::Idle, Emotion::Happy, Emotion::Love, Emotion::Excited,
+    Emotion::Cool, Emotion::Sad,   Emotion::Angry, Emotion::Surprised,
+};
+constexpr int RANDOM_EMOTION_COUNT = sizeof(RANDOM_EMOTIONS) / sizeof(RANDOM_EMOTIONS[0]);
 }
 
 AppController::AppController(FaceRenderer& renderer, WeatherService& weather)
@@ -16,20 +33,66 @@ AppController::AppController(FaceRenderer& renderer, WeatherService& weather)
 void AppController::begin() {
     settings_.begin();
     taskManager_.begin();
+    // Apply what was loaded from flash immediately, not only on the next web
+    // save -- otherwise a saved format/location sits unused until re-saved.
+    renderer_.setClockFormat(settings_.use24Hour());
+    weather_.setLocation(settings_.weatherLatitude(), settings_.weatherLongitude());
     mode_ = settings_.defaultMode();
     preNightMode_ = mode_;
     emotion_ = restingEmotion();
     lastInteractionAt_ = millis();
     nextIdleEmotionAt_ = lastInteractionAt_ + Config::IDLE_SURPRISE_INTERVAL_MS;
+    scheduleRandomEmotion(lastInteractionAt_);
 }
 
 Emotion AppController::restingEmotion() const {
-    return mode_ == AppMode::Music ? Emotion::Happy : Emotion::Idle;
+    if (mode_ == AppMode::Music) return Emotion::Happy;
+    // A timed Happy/Love pulse from a feed or a pat already lands on the pet
+    // screen via setEmotion(); once that pulse lapses, this is what takes
+    // over -- so a neglected pet drifts to Sad/Angry with no extra timer.
+    if (mode_ == AppMode::Pet) return taskManager_.petMoodEmotion();
+    return Emotion::Idle;
 }
 
 void AppController::noteInteraction(unsigned long now) {
     lastInteractionAt_ = now;
     nextIdleEmotionAt_ = now + Config::IDLE_SURPRISE_INTERVAL_MS;
+    scheduleRandomEmotion(now);
+}
+
+void AppController::scheduleRandomEmotion(unsigned long now) {
+    nextRandomEmotionAt_ = now + static_cast<unsigned long>(
+        random(Config::FACE_RANDOM_MIN_MS, Config::FACE_RANDOM_MAX_MS));
+}
+
+Emotion AppController::randomEmotionOtherThan(Emotion current) {
+    int currentIndex = -1;
+    for (int i = 0; i < RANDOM_EMOTION_COUNT; ++i) {
+        if (RANDOM_EMOTIONS[i] == current) {
+            currentIndex = i;
+            break;
+        }
+    }
+    if (currentIndex < 0) return RANDOM_EMOTIONS[random(0, RANDOM_EMOTION_COUNT)];
+    int index = static_cast<int>(random(0, RANDOM_EMOTION_COUNT - 1));
+    if (index >= currentIndex) ++index;
+    return RANDOM_EMOTIONS[index];
+}
+
+void AppController::cycleMode(int delta) {
+    int index = -1;
+    for (int i = 0; i < BROWSABLE_COUNT; ++i) {
+        if (BROWSABLE_MODES[i] == mode_) {
+            index = i;
+            break;
+        }
+    }
+    // Standing on a screen outside the walk (a reminder, the guard alarm, RC)
+    // steps onto the first entry going forwards and the last going backwards.
+    const int next = index < 0
+        ? (delta > 0 ? 0 : BROWSABLE_COUNT - 1)
+        : (index + delta + BROWSABLE_COUNT) % BROWSABLE_COUNT;
+    setMode(BROWSABLE_MODES[next]);
 }
 
 void AppController::update(unsigned long now) {
@@ -69,6 +132,12 @@ void AppController::update(unsigned long now) {
         emotion_ = restingEmotion();
     }
 
+    if (mode_ == AppMode::Face && !emotionTimed_ && emotion_ != Emotion::Sleep &&
+        reached(now, nextRandomEmotionAt_)) {
+        emotion_ = randomEmotionOtherThan(emotion_);
+        scheduleRandomEmotion(now);
+    }
+
     if (mode_ == AppMode::Music) {
         musicMode_.update(now, emotion_, renderer_, weather_.data(), WiFi.status() == WL_CONNECTED);
     } else {
@@ -87,8 +156,6 @@ void AppController::checkNightMode() {
     const bool night = hour >= Config::NIGHT_START_HOUR || hour < Config::NIGHT_END_HOUR;
 
     if (!nightInitialised_) {
-        // First valid clock read: adopt the current state without stealing the
-        // mode, so a daytime boot does not jump anywhere.
         nightInitialised_ = true;
         nightActive_ = night;
         if (!night) return;
@@ -142,13 +209,15 @@ void AppController::handleTouch(TouchEvent event, unsigned long now) {
     }
 
     if (event == TouchEvent::SingleTap) {
-        setEmotion(Emotion::Happy, 4000, now);
+        cycleMode(1);
+    } else if (event == TouchEvent::DoubleTap) {
+        // Untimed, so the expression holds until the next random change or the
+        // next touch rather than snapping back after a few seconds.
+        setEmotion(randomEmotionOtherThan(emotion_), 0, now);
         // A head pat cheers the pet up, matching the web "Pet Head" action.
         if (mode_ == AppMode::Pet) taskManager_.petPet();
-    } else if (event == TouchEvent::DoubleTap) {
-        setEmotion(Emotion::Love, 5000, now);
     } else if (event == TouchEvent::TripleTap) {
-        setEmotion(Emotion::Angry, 6000, now);
+        cycleMode(-1);
     } else if (event == TouchEvent::LongPress) {
         setEmotion(Emotion::Sleep, 0, now);
     }
@@ -187,6 +256,19 @@ uint8_t AppController::batteryPercent() const { return settings_.batteryPercent(
 const char* AppController::wifiSsid() const { return settings_.wifiSsid(); }
 const char* AppController::wifiPassword() const { return settings_.wifiPassword(); }
 void AppController::setWiFiCredentials(const String& ssid, const String& password) { settings_.setWiFiCredentials(ssid, password); }
+const char* AppController::timezone() const { return settings_.timezone(); }
+bool AppController::use24Hour() const { return settings_.use24Hour(); }
+void AppController::setClockSettings(const String& timezone, bool use24Hour) {
+    settings_.setClockSettings(timezone, use24Hour);
+    renderer_.setClockFormat(use24Hour);
+}
+const char* AppController::weatherLatitude() const { return settings_.weatherLatitude(); }
+const char* AppController::weatherLongitude() const { return settings_.weatherLongitude(); }
+void AppController::setWeatherLocation(const String& latitude, const String& longitude) {
+    settings_.setWeatherLocation(latitude, longitude);
+    weather_.setLocation(latitude, longitude);
+    weather_.requestRefresh();
+}
 const char* AppController::modeName() const { return appModeName(mode_); }
 
 TaskManager& AppController::taskManager() {

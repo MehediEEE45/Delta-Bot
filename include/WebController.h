@@ -2,17 +2,19 @@
 
 #include <WebServer.h>
 #include "AppController.h"
+#include "CommandProcessor.h"
 #include "MotorController.h"
 
 class WebController {
 public:
-    WebController(AppController& app, MotorController& motors);
+    WebController(AppController& app, MotorController& motors, CommandProcessor& commands);
     void begin();
     void update();
 
 private:
     AppController& app_;
     MotorController& motors_;
+    CommandProcessor& commands_;
     WebServer server_{80};
 
     void registerRoutes();
@@ -31,6 +33,8 @@ private:
     void handleGuardApi();
     void handleQuoteApi();
     void handleDefaultModeApi();
+    void handleWiFiDiagApi();
+    void handleClockApi();
 
     // Returns true when the request may proceed; otherwise it has already been
     // answered with a 401 challenge.

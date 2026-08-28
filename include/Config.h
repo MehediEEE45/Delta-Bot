@@ -25,11 +25,17 @@ constexpr uint8_t BATTERY_ADC_PIN = 255;
 constexpr float BATTERY_DIVIDER_RATIO = 2.0f;
 constexpr float BATTERY_EMPTY_VOLTAGE = 3.30f;
 constexpr float BATTERY_FULL_VOLTAGE = 4.20f;
+constexpr char DEVICE_NAME[] = "DELTA";
 constexpr char FALLBACK_AP_SSID[] = "Delta";
-constexpr char TIMEZONE[] = "CET-1CEST,M3.5.0,M10.5.0";
+// Bangladesh Standard Time, UTC+6, no DST. POSIX TZ offsets are west-positive,
+// so the fixed 6-hour advance is written as -6.
+constexpr char TIMEZONE[] = "BST-6";
 
-constexpr char WEATHER_LATITUDE[] = "52.5200";
-constexpr char WEATHER_LONGITUDE[] = "13.4050";
+// Dhaka. Both the timezone and this default only matter until the web
+// dashboard's Clock & Region panel saves a real location; from then on
+// DeviceSettings' persisted value wins.
+constexpr char WEATHER_LATITUDE[] = "23.8103";
+constexpr char WEATHER_LONGITUDE[] = "90.4125";
 
 constexpr unsigned long TOUCH_DEBOUNCE_MS = 50;
 constexpr unsigned long GESTURE_WINDOW_MS = 250;
@@ -79,6 +85,26 @@ constexpr unsigned long CLOCK_FRAME_MS = 200;
 // Face modes animate; info screens do not need the bandwidth.
 constexpr unsigned long FACE_FRAME_MS = 45;
 
+// Boot splash. The mark, then the name, then the tagline animate in over
+// SPLASH_INTRO_MS, and the finished card sits still for the rest of
+// SPLASH_HOLD_MS so "DELTA" is readable even when the rest of setup() is quick.
+constexpr unsigned long SPLASH_INTRO_MS = 1600;
+constexpr unsigned long SPLASH_HOLD_MS = 2400;
+constexpr unsigned long SPLASH_FRAME_MS = 40;
+
+// setup() blocks for a scan plus up to 20s of association, so the progress
+// card repaints at this rate to prove the bot has not hung. A full frame is
+// ~25ms of I2C at 400kHz; do not push this much below that.
+constexpr unsigned long BOOT_STATUS_FRAME_MS = 120;
+
+// How long the "here is how to reach me" card holds before the normal screens
+// take over. Long enough to type an SSID and password into a phone.
+constexpr unsigned long NETWORK_CARD_MS = 6000;
+
+// How long a failed radio check stays on the panel before the setup card
+// replaces it. Long enough to read the fault line and the MAC.
+constexpr unsigned long WIFI_DIAG_CARD_MS = 4000;
+
 // ---- Face animation -------------------------------------------------------
 // Emotion changes ease over this long instead of popping.
 constexpr unsigned long FACE_MORPH_MS = 220;
@@ -95,6 +121,10 @@ constexpr float IDLE_DRIFT_PX = 2.0f;
 constexpr unsigned long SACCADE_MIN_GAP_MS = 1500;
 constexpr unsigned long SACCADE_MAX_GAP_MS = 4200;
 constexpr unsigned long SACCADE_TRAVEL_MS = 90;
+// Left alone, the face screen eases into a new expression after a gap drawn
+// from this range. Any touch restarts the gap.
+constexpr unsigned long FACE_RANDOM_MIN_MS = 15000;
+constexpr unsigned long FACE_RANDOM_MAX_MS = 30000;
 // OLED burn-in protection: very slow whole-face drift on long periods.
 constexpr float BURNIN_X_MS = 47000.0f;
 constexpr float BURNIN_Y_MS = 61000.0f;

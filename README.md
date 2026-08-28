@@ -24,17 +24,27 @@ not another blinking status LED. Most of the work went into the face.
 
 | | |
 | :--- | :--- |
-| **Animated face** | Nine expressions on the OLED, each with its own eye shape, brow angle and mouth. Blinks at random intervals, drifts slightly when idle, and glances around on its own. |
-| **Touch** | One capacitive pad. Single, double and triple taps each do something different; hold it to put the bot to sleep. |
+| **Animated face** | The screen it boots to. Nine expressions on the OLED, each with its own eye shape, brow angle and mouth. Blinks at random intervals, drifts slightly when idle, and glances around on its own. Left alone it eases into a new expression every 15-30 seconds. |
+| **Touch** | One capacitive pad, and the only control you need. A tap steps to the next screen, a triple tap steps back, a double tap throws a random expression on the face, and holding it puts the bot to sleep. |
 | **RC driving** | A D-pad on the web page drives the two motors. The eyes lean into the turn. Motors cut out after one second if the browser stops sending, so a dropped connection can't run it off the desk. |
-| **Voice** | The web page uses the browser's own speech recognition — say "forward", "left", "happy". No cloud service, no API key; it only works in Chrome-family browsers. |
-| **Clock and weather** | NTP time, plus current conditions from Open-Meteo with drawn icons for sun, cloud, rain, snow and storms. |
+| **Voice** | The web page uses the browser's own speech recognition — say "forward", "left", "happy". No cloud service, no API key. Needs a secure page (see below); heard text is echoed to both the web page and the OLED. |
+| **Clock and weather** | NTP time on a decorative ring that sweeps once a minute, timezone and 12h/24h format set from the web page and applied instantly. Current conditions from Open-Meteo, location also set from the web page, with drawn icons for sun, cloud, fog, rain, snow and storms. |
 | **To-do list** | Up to five tasks, added from the web page, ticked off from either end. Survives a reboot. |
-| **Pomodoro** | 25 on, 5 off, with a ring that sweeps around the display as the interval burns down. Pauses and resumes properly. |
-| **Virtual pet** | Hunger and happiness meters that decay slowly. Feed it from the web page or pat the touch sensor. |
+| **Pomodoro** | Focus length is set from the web page (1-180 minutes, default 25), with a fixed 5-minute break; a ring sweeps around the display as the interval burns down. Pauses and resumes properly. |
+| **Virtual pet** | The pet screen shows a full animated face — happy when cared for, sad or angry if left hungry — plus a brief eating animation right after you feed it. Feed it from the web page, or double-tap the pad on the pet screen to pat it. |
 | **Pixel canvas** | A 16×16 grid on your phone draws straight onto the OLED. |
 | **Desk guard** | Arm it, and anyone who touches the bot gets a flashing alarm face and a wheel twitch. |
 | **Night mode** | Switches to a moon-and-stars screen after 22:00 and puts your mode back at 06:00. |
+
+On power-up it paints a name card - a Δ mark that rises, then **DELTA** assembling
+under it - which also proves the panel and the I²C wiring before Wi-Fi is even
+attempted, then settles on the animated face.
+
+The pad walks a fixed ring of eight screens: **face, clock, weather, tasks,
+pomodoro, pet, quotes, music**. The event-driven screens (notice, reminder, desk
+guard, decision, night, RC) are left out of the ring on purpose, since landing on
+one by accident would only show you a stale or empty panel; those still appear
+when the web page or a trigger pushes them.
 
 Everything is served from the bot itself. There's no app and nothing phones home;
 the only outbound request is the weather fetch.
@@ -224,6 +234,50 @@ go to `192.168.4.1` to set the real credentials.
 
 ---
 
+## The console
+
+The same command set is reachable three ways — over USB serial, over Bluetooth,
+and from the web page's buttons. They all run through one parser, so a command
+means the same thing wherever you type it.
+
+**Over serial:** open the monitor at 115200 and type. `help` lists everything.
+
+**Over Bluetooth:** the bot advertises as **DELTA** over BLE, exposing a Nordic
+UART service. Any generic BLE terminal works — *Serial Bluetooth Terminal* in
+BLE mode, or nRF Connect. There's no app to install.
+
+> The ESP32-C3 has no classic Bluetooth, only BLE. A classic SPP pairing — the
+> kind most "Bluetooth serial" tutorials describe — cannot work on this chip.
+
+```
+status              current mode, radio, battery, uptime
+wifidiag (or wifi)  re-run the radio check and report
+<mode>              face, clock, weather, tasks, pomodoro, pet, quotes, music...
+<emotion>           happy, love, angry, cool, excited, sad, surprised, sleep, idle
+drive <dir> [speed] forward | backward | left | right | stop, 0-255
+restart (or reboot) reboot the board
+help (or ?)         the list
+```
+
+### When Wi-Fi doesn't come up
+
+`wifidiag` exists to answer one question: *is the radio broken, or is it
+something ordinary?* It runs a live check and separates the cases:
+
+| Reported | What it means |
+| :--- | :--- |
+| `radio-dead` | The MAC came back all-zero or all-`FF`. The PHY never started — this is the hardware. |
+| `scan-empty` | Radio reports a real MAC but sees zero networks. Usually the antenna, not the chip. |
+| `ssid-not-found` | Radio is fine, other networks are visible, yours isn't. Out of range or hidden. |
+| `auth-failed` | Your network was seen and refused the association. Check the password. |
+| `timeout` | Seen, but never answered. Weak signal or a busy AP. |
+
+The check also runs at boot. If it fails, the reason goes on the OLED for a few
+seconds before the setup card appears, so you can diagnose it without a laptop
+attached. The same result is on the web dashboard under **Wi-Fi Diagnostics**.
+
+---
+
 ## The web dashboard
 
 Served straight off the board — one page, no build step, no dependencies.
@@ -231,12 +285,23 @@ Served straight off the board — one page, no build step, no dependencies.
 - Drive pad with a speed slider
 - Every emotion and mode as a button
 - Task list with add, tick and delete
-- Pomodoro, reminders, notices, the 8-ball, the pet
+- Pomodoro (with a configurable focus length), reminders, notices, the 8-ball, the pet
 - Pixel canvas that draws on the OLED as you tap
 - Wi-Fi setup
+- Clock & Region: timezone, 12h/24h format, and weather location — all applied
+  immediately, no reboot
+- Voice command, echoed to both the page and the OLED
 
 Status polls every two seconds. If a request fails, the page tells you what
 happened instead of silently doing nothing.
+
+**Voice needs a secure page.** Browsers only allow microphone access on HTTPS
+or `localhost` — a device on your LAN serving plain HTTP is blocked by the
+browser before the bot ever sees a request. Standing up real HTTPS on a C3
+just for this isn't worth it, so the practical fix is a browser flag: open
+`chrome://flags/#unsafely-treat-insecure-origin-as-secure`, add
+`http://<the-bot's-ip>`, enable it, and relaunch. That's a one-time setup per
+browser/device, not a bot-side limitation you'll hit again.
 
 ---
 
@@ -250,11 +315,15 @@ src/
   FaceRenderer       Everything that draws to the OLED
   TaskManager        Tasks, pet, pomodoro, reminders, canvas
   MotorController    TB6612 driver, watchdog, non-blocking wiggle
+  CommandProcessor   One command parser, shared by every control surface
+  SerialConsole      Line reader on USB serial
+  BleConsole         Same console over a BLE UART service
+  WiFiDiagnostics    Radio check that separates hardware from config faults
   WebController      HTTP server and the dashboard page
   Weather            Open-Meteo fetch, on its own FreeRTOS task
 ```
 
-Two decisions worth explaining.
+Four decisions worth explaining.
 
 **The weather fetch runs on its own task.** A TLS handshake on a C3 takes a few
 seconds, and doing that inside `loop()` froze the display and the web server
@@ -265,6 +334,16 @@ than running in parallel, but the face keeps animating through it.
 should be and hands over a struct; `FaceRenderer` draws it. That split means the
 animation maths can be tested on a laptop with fake timestamps, and it keeps the
 drawing code from accumulating state.
+
+**One command parser, three front ends.** `CommandProcessor::execute()` writes
+its output to an Arduino `Print&` rather than to `Serial` directly. That one
+choice is what lets serial, BLE and the web API share a single parser — each
+passes its own sink, and none of them can drift into meaning something different.
+
+**BLE callbacks don't touch app state.** NimBLE runs its write callback on the
+BLE stack's own task. Mutating `AppController` from there would race the main
+loop, so the callback only posts the line to a queue and `loop()` drains it —
+every command still executes from exactly one thread.
 
 There's a preview script at [`tools/preview_face.py`](tools/preview_face.py) that
 renders the expressions as ASCII, so you can check the geometry without flashing
@@ -277,8 +356,9 @@ anything. It caught three real layout bugs before they ever hit hardware.
 Things I know about, listed here rather than discovered by you:
 
 - Tasks are capped at five. It's a fixed array.
-- No OTA yet, so updates mean plugging in a cable. The board is at 80% of its
-  flash slot, which is the thing standing in the way.
+- No OTA, so updates mean plugging in a cable. The build now uses the `huge_app`
+  partition layout to fit the BLE stack, and that layout has no second OTA slot —
+  so this is a deliberate trade rather than a space problem now.
 - The battery gauge is wired in software but there's no divider on the board, so
   the API honestly reports `batteryMeasured: false` instead of inventing a number.
 - No tests and no CI. Next on the list — the touch gesture logic and the Pomodoro

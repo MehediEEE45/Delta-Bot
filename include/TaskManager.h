@@ -4,6 +4,7 @@
 #include <Preferences.h>
 #include <time.h>
 #include "Config.h"
+#include "FaceRenderer.h"
 
 struct TaskItem {
     String text;
@@ -58,12 +59,20 @@ public:
     unsigned long pomodoroRemainingSec(unsigned long now) const;
     // 0.0 at the start of the current interval, 1.0 at its end. Drives the ring.
     float pomodoroProgress(unsigned long now) const;
+    // Clamped to 1-180 minutes; takes effect on the next work interval.
+    void setPomodoroWorkMinutes(uint16_t minutes);
+    unsigned long pomodoroWorkMinutes() const;
 
     // Virtual Pet API
     void updatePet(unsigned long now);
     void feedPet();
     void petPet();
     const PetStats& petStats() const;
+    // Mood derived from hunger/happiness, for the pet screen's resting face.
+    Emotion petMoodEmotion() const;
+    // True for a short window after a feed, so the renderer can show an
+    // eating cue without TaskManager knowing anything about drawing.
+    bool recentlyFed(unsigned long now) const;
 
     // Decision 8-Ball API
     String askDecision(const String& question);
@@ -113,8 +122,11 @@ private:
     unsigned long pomodoroStartedAt_ = 0;
     unsigned long pomodoroDurationMs_ = 0;
     unsigned long pomodoroPausedRemainingMs_ = 0;
+    PomodoroState pomodoroPausedFromState_ = PomodoroState::Work;
+    unsigned long pomodoroWorkDurationMs_ = Config::POMODORO_WORK_MS;
 
     PetStats pet_;
+    unsigned long lastFedAt_ = 0;
 
     String lastAnswer_;
     String currentQuote_;

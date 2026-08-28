@@ -55,6 +55,7 @@ void TaskManager::loadFromFlash() {
 
     pet_.hunger = prefs_.getUChar("p_hunger", 80);
     pet_.happiness = prefs_.getUChar("p_happy", 90);
+    pomodoroWorkDurationMs_ = prefs_.getULong("pomo_work_ms", Config::POMODORO_WORK_MS);
     prefs_.end();
 }
 
@@ -69,6 +70,7 @@ void TaskManager::saveToFlash() {
     }
     prefs_.putUChar("p_hunger", pet_.hunger);
     prefs_.putUChar("p_happy", pet_.happiness);
+    prefs_.putULong("pomo_work_ms", pomodoroWorkDurationMs_);
     prefs_.end();
     dirty_ = false;
     lastSaveAt_ = millis();
@@ -185,8 +187,10 @@ void TaskManager::clearReminder() {
 void TaskManager::startPomodoro(unsigned long now) {
     if (pomodoroState_ == PomodoroState::Paused) {
         // Resume: rebase the start so only the saved remainder plays out.
-        pomodoroState_ = pomodoroDurationMs_ == Config::POMODORO_BREAK_MS
-            ? PomodoroState::Break : PomodoroState::Work;
+        // Which interval this was paused from is remembered explicitly rather
+        // than guessed from the duration, since a custom work length can now
+        // legitimately equal the fixed break length.
+        pomodoroState_ = pomodoroPausedFromState_;
         pomodoroStartedAt_ = now - (pomodoroDurationMs_ - pomodoroPausedRemainingMs_);
         pomodoroPausedRemainingMs_ = 0;
         return;
@@ -194,7 +198,7 @@ void TaskManager::startPomodoro(unsigned long now) {
     if (pomodoroState_ != PomodoroState::Stopped) return;
     pomodoroState_ = PomodoroState::Work;
     pomodoroStartedAt_ = now;
-    pomodoroDurationMs_ = Config::POMODORO_WORK_MS;
+    pomodoroDurationMs_ = pomodoroWorkDurationMs_;
     pomodoroPausedRemainingMs_ = 0;
 }
 
@@ -202,7 +206,17 @@ void TaskManager::pausePomodoro(unsigned long now) {
     if (pomodoroState_ != PomodoroState::Work && pomodoroState_ != PomodoroState::Break) return;
     const unsigned long elapsed = now - pomodoroStartedAt_;
     pomodoroPausedRemainingMs_ = elapsed >= pomodoroDurationMs_ ? 0 : pomodoroDurationMs_ - elapsed;
+    pomodoroPausedFromState_ = pomodoroState_;
     pomodoroState_ = PomodoroState::Paused;
+}
+
+void TaskManager::setPomodoroWorkMinutes(uint16_t minutes) {
+    pomodoroWorkDurationMs_ = static_cast<unsigned long>(constrain(minutes, 1, 180)) * 60UL * 1000UL;
+    saveToFlash();
+}
+
+unsigned long TaskManager::pomodoroWorkMinutes() const {
+    return pomodoroWorkDurationMs_ / 60000UL;
 }
 
 void TaskManager::resetPomodoro() {
@@ -278,7 +292,19 @@ void TaskManager::updatePet(unsigned long now) {
 void TaskManager::feedPet() {
     pet_.hunger = min<uint8_t>(100, pet_.hunger + 25);
     pet_.happiness = min<uint8_t>(100, pet_.happiness + 10);
+    lastFedAt_ = millis();
     saveToFlash();
+}
+
+bool TaskManager::recentlyFed(unsigned long now) const {
+    return lastFedAt_ != 0 && now - lastFedAt_ < 1500;
+}
+
+Emotion TaskManager::petMoodEmotion() const {
+    if (pet_.hunger < 25) return Emotion::Angry;
+    if (pet_.hunger < 45 || pet_.happiness < 40) return Emotion::Sad;
+    if (pet_.happiness >= 80 && pet_.hunger >= 70) return Emotion::Love;
+    return Emotion::Happy;
 }
 
 void TaskManager::petPet() {

@@ -203,9 +203,129 @@ def render(name, shape, p, gaze=(0.0, 0.0), openness=1.0):
     return c
 
 
+# --- mirrors FaceRenderer::showSplash() ------------------------------------
+GLYPH = {
+    "D": ["1110", "1001", "1001", "1001", "1110"],
+    "E": ["1111", "1000", "1110", "1000", "1111"],
+    "L": ["1000", "1000", "1000", "1000", "1111"],
+    "T": ["1111", "0110", "0110", "0110", "0110"],
+    "A": ["0110", "1001", "1111", "1001", "1001"],
+    "0": ["1111", "1001", "1001", "1001", "1111"],
+    "1": ["0010", "0110", "0010", "0010", "0111"],
+    "2": ["1111", "0001", "1111", "1000", "1111"],
+    "3": ["1111", "0001", "1111", "0001", "1111"],
+    "4": ["1001", "1001", "1111", "0001", "0001"],
+    "5": ["1111", "1000", "1111", "0001", "1111"],
+    "6": ["1111", "1000", "1111", "1001", "1111"],
+    "7": ["1111", "0001", "0010", "0100", "0100"],
+    "8": ["1111", "1001", "1111", "1001", "1111"],
+    "9": ["1111", "1001", "1111", "0001", "1111"],
+    ":": ["0000", "0100", "0000", "0100", "0000"],
+}
+
+
+def ease_out_cubic(t):
+    t = max(0.0, min(1.0, t))
+    return 1.0 - (1.0 - t) ** 3
+
+
+def stage(value, start, span):
+    if span <= 0:
+        return 1.0 if value >= start else 0.0
+    return max(0.0, min(1.0, (value - start) / span))
+
+
+def draw_glyph(c, ch, x, y, size=2):
+    # Stand-in for the GFX font: blocky enough to check placement, not shape.
+    rows = GLYPH.get(ch.upper())
+    if not rows:
+        return
+    for j, row in enumerate(rows):
+        for i, bit in enumerate(row):
+            if bit == "1":
+                c.rect(x + i * size, y + j * size, size, size)
+
+
+def draw_delta_mark(c, cx, base_y, size, progress):
+    if progress <= 0:
+        return
+    scale = ease_out_cubic(progress)
+    half = round((size / 2.0) * scale)
+    height = round(size * 0.88 * scale)
+    if half < 1 or height < 1:
+        return
+    c.line(cx, base_y - height, cx - half, base_y)
+    c.line(cx - half, base_y, cx + half, base_y)
+    c.line(cx + half, base_y, cx, base_y - height)
+
+
+def render_splash(t, name="DELTA", tagline="desk buddy"):
+    c = Canvas()
+    draw_delta_mark(c, 64, 20, 20, stage(t, 0.0, 0.28))
+
+    name_width = len(name) * 12
+    left = (128 - name_width) // 2
+    for i, ch in enumerate(name):
+        drop = ease_out_cubic(stage(t, 0.20 + i * 0.06, 0.30))
+        y = 26 - round((1.0 - drop) * 42.0)
+        draw_glyph(c, ch, left + i * 12, y)
+
+    half = round(ease_out_cubic(stage(t, 0.60, 0.20)) * (name_width // 2))
+    if half > 0:
+        c.hline(64 - half, 45, half * 2)
+
+    typed = int(stage(t, 0.76, 0.22) * len(tagline))
+    for i in range(typed):
+        draw_glyph(c, tagline[i], (128 - len(tagline) * 6) // 2 + i * 6, 51, size=1)
+    return c
+
+
+# --- mirrors FaceRenderer::drawTimeDateScreen() -----------------------------
+def render_clock(hour, minute, second, use24=True):
+    c = Canvas()
+    cx, cy, rx, ry = 64, 24, 58, 17
+
+    c.arc(cx, cy, rx, ry, 0, 360, dotted=True)
+    sweep = 360.0 * (second / 60.0)
+    if sweep > 0:
+        c.arc(cx, cy, rx, ry, -90, sweep)
+        c.arc(cx, cy, rx - 1, ry - 1, -90, sweep)
+    head = math.radians(-90 + sweep)
+    c.circle(cx + math.cos(head) * rx, cy + math.sin(head) * ry, 2)
+
+    display_hour = hour if use24 else (hour % 12 or 12)
+    time_text = f"{display_hour:02d}:{minute:02d}:{second:02d}"
+    left = cx - 48
+    for i, ch in enumerate(time_text):
+        draw_glyph(c, ch, left + i * 12, cy - 8, size=2)
+
+    if not use24:
+        for i, ch in enumerate("PM" if hour >= 12 else "AM"):
+            draw_glyph(c, ch, 104 + i * 4, 1, size=1)
+
+    date_text = "FRI 28 AUG"
+    left = (128 - len(date_text) * 6) // 2
+    for i, ch in enumerate(date_text):
+        draw_glyph(c, ch, left + i * 6, 55, size=1)
+    return c
+
+
 if __name__ == "__main__":
     import sys
     which = sys.argv[1] if len(sys.argv) > 1 else None
+
+    if which and which.lower() == "splash":
+        for t in (0.15, 0.35, 0.55, 0.75, 1.0):
+            print(f"\n=== splash  t={t:.2f} " + "=" * 40)
+            print(render_splash(t).show())
+        raise SystemExit
+
+    if which and which.lower() == "clock":
+        for h, m, s, use24 in ((14, 7, 3, True), (14, 7, 45, False), (0, 0, 0, False)):
+            print(f"\n=== clock  {h:02d}:{m:02d}:{s:02d}  {'24h' if use24 else '12h'} " + "=" * 20)
+            print(render_clock(h, m, s, use24).show())
+        raise SystemExit
+
     for name, shape, p in EMOTIONS:
         if which and which.lower() != name.lower():
             continue
