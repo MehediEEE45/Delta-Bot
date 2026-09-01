@@ -7,12 +7,7 @@ a to-do list and a Pomodoro timer that you can see without picking up anything.
 I built it because I wanted something on my desk that felt like it was *there* —
 not another blinking status LED. Most of the work went into the face.
 
-![Delta-Bot concept render](docs/images/delta_bot_hero.png)
-
-> **That image is a concept render, not a photo of the build.** I made it early
-> on to figure out the proportions. The real bot has two wheels, no ultrasonic
-> sensors, no antenna and no headlights — see the parts list below for what
-> actually goes in it. Real photos are coming; the slots are further down.
+![Delta-Bot, face on](docs/images/hero.jpg)
 
 [![Board](https://img.shields.io/badge/ESP32--C3-Arduino-red?style=flat-square&logo=espressif)](https://www.espressif.com/)
 [![Build](https://img.shields.io/badge/PlatformIO-builds%20clean-orange?style=flat-square&logo=platformio)](https://platformio.org/)
@@ -163,24 +158,21 @@ first place to look: check for pull-ups on SDA/SCL and keep the leads short.
 
 ## Photos
 
-I haven't shot the finished build yet, so rather than leave broken image links
-in the README, here's the shot list. Drop each file into `docs/images/` with the
-name given, then uncomment the matching line in the HTML block below and the
-gallery appears.
+| | |
+| :--- | :--- |
+| ![Face close-up](docs/images/face-closeup.jpg) | **The face.** OLED filling the frame, shot slightly off-axis so the glass doesn't blow out. This is the project. |
+| ![Bench wiring](docs/images/build-wiring.jpg) | **The tail end.** Boost converter, power switch and the wiring that feeds the ESP32 — the single most useful photo in any hardware repo, since people copy wiring from photos, not diagrams. |
+| ![Held in hand, for scale](docs/images/assembled-side.jpg) | **Actual size.** It's small — a hand around it answers "how big is it" faster than a ruler would. |
 
-| File to add | Shot | Why it matters |
-| :--- | :--- | :--- |
-| `build-wiring.jpg` | Everything laid out flat and connected, before it goes in the shell | The single most useful photo in any hardware repo — people copy wiring from photos, not diagrams |
-| `face-closeup.jpg` | The OLED filling the frame, shot slightly off-axis so the glass doesn't blow out | This is the project. Lead with it once you have it |
-| `assembled-side.jpg` | Side profile on a desk, something familiar next to it for scale | Answers "how big is it" instantly |
-| `web-ui.png` | Phone screenshot of the dashboard | Easiest one to capture — no staging needed |
+A phone screenshot of the web dashboard is still on the shot list — drop one
+into `docs/images/web-ui.png` and add `![Web dashboard](docs/images/web-ui.png)`
+here once it exists.
 
-<!-- Uncomment each line as you add the file:
-![Bench wiring](docs/images/build-wiring.jpg)
-![Face close-up](docs/images/face-closeup.jpg)
-![Assembled, side view](docs/images/assembled-side.jpg)
-![Web dashboard](docs/images/web-ui.png)
--->
+There's also a short clip of it driving around. GitHub won't play an `.mp4`
+referenced by a repo-relative path inline, so once it's uploaded somewhere
+(YouTube, etc.), add a link here:
+
+<!-- **[Watch it drive](PASTE_VIDEO_URL_HERE)** -->
 
 ---
 
